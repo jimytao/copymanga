@@ -3,9 +3,14 @@ package top.fumiama.copymangaweb.activity
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Looper
+import android.view.GestureDetector
+import android.view.MotionEvent
 import android.view.View
+import android.view.WindowInsets
+import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.webkit.ValueCallback
 import android.webkit.WebView
@@ -33,6 +38,8 @@ class MainActivity: ToolsBoxActivity() {
     var saveUrlsOnly = false
     lateinit var mBinding: ActivityMainBinding
     private val mViewModel = MainViewModel()
+    private var isStatusBarHidden = false
+    private lateinit var gestureDetector: GestureDetector
 
     @SuppressLint("JavascriptInterface")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -72,6 +79,35 @@ class MainActivity: ToolsBoxActivity() {
             } }
         }
         SetDraggable().with(this).onto(mBinding.fab)
+
+        gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDoubleTap(e: MotionEvent): Boolean {
+                toggleStatusBar()
+                return true
+            }
+        })
+        mBinding.w.setOnTouchListener { v, event ->
+            gestureDetector.onTouchEvent(event)
+            false
+        }
+    }
+
+    private fun toggleStatusBar() {
+        isStatusBarHidden = !isStatusBarHidden
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (isStatusBarHidden) {
+                window.insetsController?.hide(WindowInsets.Type.statusBars())
+            } else {
+                window.insetsController?.show(WindowInsets.Type.statusBars())
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            if (isStatusBarHidden) {
+                window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+            } else {
+                window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+            }
+        }
     }
 
     @Deprecated("Deprecated in Java")
@@ -154,6 +190,15 @@ class MainActivity: ToolsBoxActivity() {
             Intent(this, (if(mViewModel.showDlList.value == true) DlListActivity::class else DlActivity::class).java)
                 .putExtra("title", "我的下载")
         )
+    }
+
+    fun onCartoonFabClicked(v: View) {
+        val currentUrl = mBinding.w.url ?: ""
+        if (currentUrl.contains("cartoon.zaimanhua.com")) {
+            mBinding.w.post { mBinding.w.loadUrl(getString(R.string.web_home)) }
+        } else {
+            mBinding.w.post { mBinding.w.loadUrl(getString(R.string.web_cartoon)) }
+        }
     }
 
     fun openImageChooserActivity() {

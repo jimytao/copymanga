@@ -22,7 +22,9 @@ class WebViewClient(private val context: Context, jsFileName: String):WebViewCli
         super.onPageStarted(view, url, favicon)
         Log.d("MyWC", "Load URL: $url")
         url?.let {
-            if(!it.startsWith(context.getString(R.string.web_home)) && !it.startsWith(context.getString(R.string.web_home_www))){
+            if(!it.startsWith(context.getString(R.string.web_home)) &&
+                !it.startsWith(context.getString(R.string.web_home_www)) &&
+                !it.startsWith(context.getString(R.string.web_cartoon))){
                 view?.goBack()
                 Toast.makeText(context, R.string.blocked_ad, Toast.LENGTH_SHORT).show()
             }

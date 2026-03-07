@@ -43,19 +43,10 @@ if (typeof (loaded) == "undefined") {
         GM.hideFab();
         if (url.endsWith("/index")) {
             invoke.pinTitle();
-            invoke.hideRanobeTab();
-        }
-        else if (url.endsWith("/bookrack")) {
-            invoke.hideRanobeTab();
-            invoke.hideRanobeRack();
-        }
-        else if (url.indexOf("/searchContent") > 0) {
-            invoke.hideRanobeRack();
         }
         else if (url.indexOf("/comicContent/") > 0) setTimeout(function () { invoke.loadChapter() }, 1000);
         else if (url.indexOf("/details/comic/") > 0) GM.loadComic(url);
         else if (url.indexOf("/personal") > 0) {
-            invoke.hideRanobeTab();
             GM.enterProfile();
         }
     }
