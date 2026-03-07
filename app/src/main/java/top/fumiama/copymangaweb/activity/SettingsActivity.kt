@@ -20,20 +20,25 @@ class SettingsActivity : Activity() {
     private lateinit var p: PropertiesTools
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // 必须在 setContentView 之前设置主题
+        prefs = getSharedPreferences("app_settings", MODE_PRIVATE)
+        if (prefs.getBoolean("dark_mode", false)) {
+            setTheme(android.R.style.Theme_DeviceDefault_NoActionBar)
+        }
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
 
-        prefs = getSharedPreferences("app_settings", MODE_PRIVATE)
         p = PropertiesTools(File("$filesDir/settings.properties"))
 
         findViewById<ImageButton>(R.id.btn_back).setOnClickListener { finish() }
 
-        // 夜间模式
+        // 夜间模式：切换后重建 Activity 以应用主题
         val swDark = findViewById<Switch>(R.id.sw_dark_mode)
         swDark.isChecked = prefs.getBoolean("dark_mode", false)
         swDark.setOnCheckedChangeListener(CompoundButton.OnCheckedChangeListener { _, on ->
             prefs.edit().putBoolean("dark_mode", on).apply()
             MainActivity.wm?.get()?.applyDarkMode(on)
+            recreate()
         })
 
         // 隐藏状态栏
@@ -59,14 +64,17 @@ class SettingsActivity : Activity() {
             }
         })
 
-        // 清理缓存
+        // 清理缓存：显示实际大小
         val tvCacheHint = findViewById<TextView>(R.id.tv_cache_hint)
+        tvCacheHint.text = getCacheSizeText()
         findViewById<Button>(R.id.btn_clear_cache).setOnClickListener {
             MainActivity.wm?.get()?.let { ma ->
                 ma.mBinding.w.clearCache(true)
                 ma.mBinding.wh.clearCache(true)
             }
-            tvCacheHint.text = "已清理完成"
+            cacheDir.deleteRecursively()
+            cacheDir.mkdirs()
+            tvCacheHint.text = "已清理完成（0 B）"
             Toast.makeText(this, "缓存已清理", Toast.LENGTH_SHORT).show()
         }
 
@@ -87,5 +95,14 @@ class SettingsActivity : Activity() {
             override fun onStartTrackingTouch(sb: SeekBar?) {}
             override fun onStopTrackingTouch(sb: SeekBar?) { p["mangaSpacing"] = "${sb?.progress ?: 0}" }
         })
+    }
+
+    private fun getCacheSizeText(): String {
+        val bytes = cacheDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+        return when {
+            bytes > 1024 * 1024 -> "当前缓存约 %.1f MB，点击清理".format(bytes / 1024.0 / 1024.0)
+            bytes > 1024 -> "当前缓存约 %.1f KB，点击清理".format(bytes / 1024.0)
+            else -> "当前缓存约 ${bytes} B，点击清理"
+        }
     }
 }
