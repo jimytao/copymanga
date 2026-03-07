@@ -3,9 +3,13 @@ package top.fumiama.copymangaweb.activity
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Looper
+import android.view.GestureDetector
+import android.view.MotionEvent
 import android.view.View
+import android.view.WindowInsets
 import android.view.WindowManager
 import android.webkit.ValueCallback
 import android.webkit.WebView
@@ -33,6 +37,8 @@ class MainActivity: ToolsBoxActivity() {
     var saveUrlsOnly = false
     lateinit var mBinding: ActivityMainBinding
     private val mViewModel = MainViewModel()
+    private var isStatusBarHidden = false
+    private lateinit var gestureDetector: GestureDetector
 
     @SuppressLint("JavascriptInterface")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -72,7 +78,49 @@ class MainActivity: ToolsBoxActivity() {
             } }
         }
         SetDraggable().with(this).onto(mBinding.fab)
+
+        val prefs = getSharedPreferences("app_settings", MODE_PRIVATE)
+        if (prefs.getBoolean("hide_status_bar", false)) { isStatusBarHidden = true; toggleStatusBar() }
+        val topDp = prefs.getInt("top_offset_dp", 0)
+        if (topDp > 0) setTopOffset(topDp)
+
+        gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDoubleTap(e: MotionEvent): Boolean { toggleStatusBar(); return true }
+        })
+        mBinding.w.setOnTouchListener { _, event -> gestureDetector.onTouchEvent(event); false }
     }
+
+    private fun toggleStatusBar() {
+        isStatusBarHidden = !isStatusBarHidden
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (isStatusBarHidden) window.insetsController?.hide(WindowInsets.Type.statusBars())
+            else window.insetsController?.show(WindowInsets.Type.statusBars())
+        } else {
+            @Suppress("DEPRECATION")
+            if (isStatusBarHidden) window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+            else window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+        }
+    }
+
+    fun setStatusBarHidden(hidden: Boolean) { if (hidden != isStatusBarHidden) toggleStatusBar() }
+
+    fun setTopOffset(dp: Int) {
+        val px = (dp * resources.displayMetrics.density).toInt()
+        mBinding.w.post { mBinding.w.setPadding(0, px, 0, 0) }
+        mBinding.wh.post { mBinding.wh.setPadding(0, px, 0, 0) }
+    }
+
+    fun applyDarkMode(enabled: Boolean) {
+        val js = if (enabled)
+            "javascript:(function(){var e=document.getElementById('_dk');if(!e){e=document.createElement('style');e.id='_dk';document.head.appendChild(e);}e.textContent='html{filter:invert(1) hue-rotate(180deg)!important}img,video{filter:invert(1) hue-rotate(180deg)!important}'})();"
+        else
+            "javascript:(function(){var e=document.getElementById('_dk');if(e)e.remove();})();"
+        mBinding.w.post { mBinding.w.loadUrl(js) }
+    }
+
+    fun showSettingsFab() { lifecycleScope.launch { mViewModel.setSettingsFabVisibility(true) } }
+    fun hideSettingsFab() { lifecycleScope.launch { mViewModel.setSettingsFabVisibility(false) } }
+    fun onSettingsFabClicked(v: View) { startActivity(Intent(this, SettingsActivity::class.java)) }
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
