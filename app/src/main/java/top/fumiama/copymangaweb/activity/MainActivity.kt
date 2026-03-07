@@ -80,10 +80,13 @@ class MainActivity: ToolsBoxActivity() {
         SetDraggable().with(this).onto(mBinding.fab)
 
         val prefs = getSharedPreferences("app_settings", MODE_PRIVATE)
-        if (prefs.getBoolean("dark_mode", false)) window.statusBarColor = android.graphics.Color.BLACK
+        if (prefs.getBoolean("dark_mode", false)) {
+            window.statusBarColor = android.graphics.Color.BLACK
+            mBinding.root.setBackgroundColor(android.graphics.Color.BLACK)
+        }
         if (prefs.getBoolean("hide_status_bar", false)) { isStatusBarHidden = true; toggleStatusBar() }
-        val topDp = prefs.getInt("top_offset_dp", 0)
-        if (topDp > 0) setTopOffset(topDp)
+        if (prefs.getBoolean("auto_notch", false)) setAutoNotch(true)
+        else { val topDp = prefs.getInt("top_offset_dp", 0); if (topDp > 0) setTopOffset(topDp) }
 
         gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onDoubleTap(e: MotionEvent): Boolean { toggleStatusBar(); return true }
@@ -118,6 +121,28 @@ class MainActivity: ToolsBoxActivity() {
             "javascript:(function(){var e=document.getElementById('_dk');if(e)e.remove();})();"
         mBinding.w.post { mBinding.w.loadUrl(js) }
         window.statusBarColor = if (enabled) android.graphics.Color.BLACK else android.graphics.Color.TRANSPARENT
+        mBinding.root.setBackgroundColor(if (enabled) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
+    }
+
+    fun setAutoNotch(enabled: Boolean) {
+        if (enabled) {
+            mBinding.root.setOnApplyWindowInsetsListener { _, insets ->
+                val topPx = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    insets.getInsets(android.view.WindowInsets.Type.statusBars()).top
+                } else {
+                    @Suppress("DEPRECATION")
+                    insets.systemWindowInsetTop
+                }
+                mBinding.w.post { mBinding.w.setPadding(0, topPx, 0, 0) }
+                mBinding.wh.post { mBinding.wh.setPadding(0, topPx, 0, 0) }
+                insets
+            }
+            mBinding.root.requestApplyInsets()
+        } else {
+            mBinding.root.setOnApplyWindowInsetsListener(null)
+            val dp = getSharedPreferences("app_settings", MODE_PRIVATE).getInt("top_offset_dp", 0)
+            setTopOffset(dp)
+        }
     }
 
     fun openSettings() { startActivity(Intent(this, SettingsActivity::class.java)) }

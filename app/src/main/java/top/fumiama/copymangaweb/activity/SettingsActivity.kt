@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.widget.Button
 import android.widget.CompoundButton
 import android.widget.ImageButton
+import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.Switch
 import android.widget.TextView
@@ -49,9 +50,24 @@ class SettingsActivity : Activity() {
             MainActivity.wm?.get()?.setStatusBarHidden(on)
         })
 
-        // 顶部安全距离
+        // 自动适配异形屏
+        val llOffsetContainer = findViewById<LinearLayout>(R.id.ll_top_offset_container)
         val sbOffset = findViewById<SeekBar>(R.id.sb_top_offset)
         val tvOffset = findViewById<TextView>(R.id.tv_top_offset_value)
+        fun setOffsetContainerEnabled(enabled: Boolean) {
+            llOffsetContainer.alpha = if (enabled) 1f else 0.4f
+            sbOffset.isEnabled = enabled
+        }
+        val swAutoNotch = findViewById<Switch>(R.id.sw_auto_notch)
+        swAutoNotch.isChecked = prefs.getBoolean("auto_notch", false)
+        setOffsetContainerEnabled(!swAutoNotch.isChecked)
+        swAutoNotch.setOnCheckedChangeListener(CompoundButton.OnCheckedChangeListener { _, on ->
+            prefs.edit().putBoolean("auto_notch", on).apply()
+            setOffsetContainerEnabled(!on)
+            MainActivity.wm?.get()?.setAutoNotch(on)
+        })
+
+        // 手动顶部安全距离
         sbOffset.progress = prefs.getInt("top_offset_dp", 0)
         tvOffset.text = "${sbOffset.progress}dp"
         sbOffset.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
