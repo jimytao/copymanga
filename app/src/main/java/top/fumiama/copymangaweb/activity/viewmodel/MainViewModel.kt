@@ -11,6 +11,7 @@ class MainViewModel: ViewModel() {
     val progressDuration = MutableLiveData(233L)
     val progressVisibility = MutableLiveData(View.VISIBLE)
     val fabVisibility = MutableLiveData(View.GONE)
+    val settingsFabVisibility = MutableLiveData(View.GONE)
     val showDlList = MutableLiveData(false)
 
     suspend fun updateLoadProgress(p: Int) = withContext(Dispatchers.Main) {
@@ -25,6 +26,12 @@ class MainViewModel: ViewModel() {
     suspend fun setFabVisibility(visible: Boolean) {
         withContext(Dispatchers.Main) {
             fabVisibility.value = if (visible) View.VISIBLE else View.GONE
+        }
+    }
+
+    suspend fun setSettingsFabVisibility(visible: Boolean) {
+        withContext(Dispatchers.Main) {
+            settingsFabVisibility.value = if (visible) View.VISIBLE else View.GONE
         }
     }
 }

@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.util.AttributeSet
 import android.util.Log
+import android.webkit.WebSettings
 import android.webkit.WebView
 import top.fumiama.copymangaweb.web.WebViewClient
 
@@ -16,6 +17,9 @@ class JSWebView : WebView {
     init {
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
+        val enableCache = context.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
+            .getBoolean("enable_cache", true)
+        settings.cacheMode = if (enableCache) WebSettings.LOAD_DEFAULT else WebSettings.LOAD_NO_CACHE
         Log.d("MyJSW", "UA is: ${settings.userAgentString}")
     }
     fun setWebViewClient(jsFileName: String){webViewClient = WebViewClient(context, jsFileName)}

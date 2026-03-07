@@ -23,8 +23,7 @@ class WebViewClient(private val context: Context, jsFileName: String):WebViewCli
         Log.d("MyWC", "Load URL: $url")
         url?.let {
             if(!it.startsWith(context.getString(R.string.web_home)) &&
-                !it.startsWith(context.getString(R.string.web_home_www)) &&
-                !it.startsWith(context.getString(R.string.web_cartoon))){
+                !it.startsWith(context.getString(R.string.web_home_www))){
                 view?.goBack()
                 Toast.makeText(context, R.string.blocked_ad, Toast.LENGTH_SHORT).show()
             }
@@ -37,6 +36,11 @@ class WebViewClient(private val context: Context, jsFileName: String):WebViewCli
                 delay(500)
                 withContext(Dispatchers.Main) {
                     view?.loadUrl(js)
+                    val darkMode = context.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
+                        .getBoolean("dark_mode", false)
+                    if (darkMode) {
+                        view?.loadUrl("javascript:(function(){var e=document.getElementById('_dark');if(!e){e=document.createElement('style');e.id='_dark';document.head.appendChild(e);}e.textContent='html{filter:invert(1) hue-rotate(180deg)!important}img,video{filter:invert(1) hue-rotate(180deg)!important}'})();")
+                    }
                     Log.d("MyWC", "Inject JS into: $url")
                     super.onPageFinished(view, url)
                 }

@@ -41,6 +41,7 @@ if (typeof (loaded) == "undefined") {
     function modify() {
         var url = location.href;
         GM.hideFab();
+        GM.hideSettingsFab();
         if (url.endsWith("/index")) {
             invoke.pinTitle();
         }
@@ -48,6 +49,7 @@ if (typeof (loaded) == "undefined") {
         else if (url.indexOf("/details/comic/") > 0) GM.loadComic(url);
         else if (url.indexOf("/personal") > 0) {
             GM.enterProfile();
+            GM.showSettingsFab();
         }
     }
     modify();

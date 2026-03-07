@@ -24,4 +24,12 @@ class JS {
     fun enterProfile(){
         wm?.get()?.setFab2DlList()
     }
+    @JavascriptInterface
+    fun showSettingsFab() {
+        wm?.get()?.showSettingsFab()
+    }
+    @JavascriptInterface
+    fun hideSettingsFab() {
+        wm?.get()?.hideSettingsFab()
+    }
 }

@@ -10,7 +10,6 @@ import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowInsets
-import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.webkit.ValueCallback
 import android.webkit.WebView
@@ -79,6 +78,15 @@ class MainActivity: ToolsBoxActivity() {
             } }
         }
         SetDraggable().with(this).onto(mBinding.fab)
+
+        // Apply saved settings
+        val prefs = getSharedPreferences("app_settings", MODE_PRIVATE)
+        if (prefs.getBoolean("hide_status_bar", false)) {
+            isStatusBarHidden = true
+            toggleStatusBar()
+        }
+        val topOffsetDp = prefs.getInt("top_offset_dp", 0)
+        if (topOffsetDp > 0) setTopOffset(topOffsetDp)
 
         gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onDoubleTap(e: MotionEvent): Boolean {
@@ -184,21 +192,42 @@ class MainActivity: ToolsBoxActivity() {
         lifecycleScope.launch { mViewModel.setFabVisibility(false) }
     }
 
+    fun showSettingsFab() {
+        lifecycleScope.launch { mViewModel.setSettingsFabVisibility(true) }
+    }
+
+    fun hideSettingsFab() {
+        lifecycleScope.launch { mViewModel.setSettingsFabVisibility(false) }
+    }
+
+    fun onSettingsFabClicked(v: View) {
+        startActivity(Intent(this, SettingsActivity::class.java))
+    }
+
+    fun applyDarkMode(enabled: Boolean) {
+        val js = if (enabled)
+            "javascript:(function(){var e=document.getElementById('_dark');if(!e){e=document.createElement('style');e.id='_dark';document.head.appendChild(e);}e.textContent='html{filter:invert(1) hue-rotate(180deg)!important}img,video{filter:invert(1) hue-rotate(180deg)!important}'})();"
+        else
+            "javascript:(function(){var e=document.getElementById('_dark');if(e)e.remove();})();"
+        mBinding.w.post { mBinding.w.loadUrl(js) }
+    }
+
+    fun setStatusBarHidden(hidden: Boolean) {
+        if (hidden != isStatusBarHidden) toggleStatusBar()
+    }
+
+    fun setTopOffset(dp: Int) {
+        val px = (dp * resources.displayMetrics.density).toInt()
+        mBinding.w.post { mBinding.w.setPadding(0, px, 0, 0) }
+        mBinding.wh.post { mBinding.wh.setPadding(0, px, 0, 0) }
+    }
+
     fun onFabClicked(v: View) {
         DlListActivity.currentDir = getExternalFilesDir("")
         startActivity(
             Intent(this, (if(mViewModel.showDlList.value == true) DlListActivity::class else DlActivity::class).java)
                 .putExtra("title", "我的下载")
         )
-    }
-
-    fun onCartoonFabClicked(v: View) {
-        val currentUrl = mBinding.w.url ?: ""
-        if (currentUrl.contains("cartoon.zaimanhua.com")) {
-            mBinding.w.post { mBinding.w.loadUrl(getString(R.string.web_home)) }
-        } else {
-            mBinding.w.post { mBinding.w.loadUrl(getString(R.string.web_cartoon)) }
-        }
     }
 
     fun openImageChooserActivity() {

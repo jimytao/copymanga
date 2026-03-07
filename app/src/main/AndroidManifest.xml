@@ -31,5 +31,6 @@
         <activity android:name=".activity.ViewMangaActivity"/>
         <activity android:name=".activity.DlActivity"/>
         <activity android:name=".activity.DlListActivity"/>
+        <activity android:name=".activity.SettingsActivity"/>
     </application>
 </manifest>
