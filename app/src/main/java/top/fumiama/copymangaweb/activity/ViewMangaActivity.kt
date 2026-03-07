@@ -334,7 +334,6 @@ class ViewMangaActivity : ToolsBoxActivity() {
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         tt.canDo = false
-        wm?.get()?.mBinding?.w?.goBack()
         super.onBackPressed()
     }
 
