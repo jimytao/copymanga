@@ -80,6 +80,7 @@ class MainActivity: ToolsBoxActivity() {
         SetDraggable().with(this).onto(mBinding.fab)
 
         val prefs = getSharedPreferences("app_settings", MODE_PRIVATE)
+        if (prefs.getBoolean("dark_mode", false)) window.statusBarColor = android.graphics.Color.BLACK
         if (prefs.getBoolean("hide_status_bar", false)) { isStatusBarHidden = true; toggleStatusBar() }
         val topDp = prefs.getInt("top_offset_dp", 0)
         if (topDp > 0) setTopOffset(topDp)
@@ -116,6 +117,7 @@ class MainActivity: ToolsBoxActivity() {
         else
             "javascript:(function(){var e=document.getElementById('_dk');if(e)e.remove();})();"
         mBinding.w.post { mBinding.w.loadUrl(js) }
+        window.statusBarColor = if (enabled) android.graphics.Color.BLACK else android.graphics.Color.TRANSPARENT
     }
 
     fun openSettings() { startActivity(Intent(this, SettingsActivity::class.java)) }
