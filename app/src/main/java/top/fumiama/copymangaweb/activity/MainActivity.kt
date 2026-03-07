@@ -118,9 +118,7 @@ class MainActivity: ToolsBoxActivity() {
         mBinding.w.post { mBinding.w.loadUrl(js) }
     }
 
-    fun showSettingsFab() { lifecycleScope.launch { mViewModel.setSettingsFabVisibility(true) } }
-    fun hideSettingsFab() { lifecycleScope.launch { mViewModel.setSettingsFabVisibility(false) } }
-    fun onSettingsFabClicked(v: View) { startActivity(Intent(this, SettingsActivity::class.java)) }
+    fun openSettings() { startActivity(Intent(this, SettingsActivity::class.java)) }
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
