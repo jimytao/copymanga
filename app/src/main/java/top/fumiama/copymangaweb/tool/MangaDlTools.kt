@@ -1,5 +1,6 @@
 package top.fumiama.copymangaweb.tool
 
+import top.fumiama.copymangaweb.R
 import top.fumiama.copymangaweb.activity.DlActivity
 import java.io.File
 import java.lang.Thread.sleep

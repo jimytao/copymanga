@@ -56,6 +56,12 @@ class ViewMangaActivity : ToolsBoxActivity() {
     private var mangaZip: File? = null
     val dlZip2View get() = mangaZip != null
     private val volTurnPage get() = p["volturn"] == "true"
+
+    private var dialog: Dialog? = null
+    private lateinit var p: PropertiesTools
+    private var isInSeek = false
+    private var currentItem = 0
+    private var notUseVP = true
     var pageNum = 1
         get() {
             field = getPageNumber()
