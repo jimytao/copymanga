@@ -10,6 +10,7 @@ import android.widget.Toast
 import top.fumiama.copymangaweb.R
 import top.fumiama.copymangaweb.databinding.ActivityDlistBinding
 import top.fumiama.copymangaweb.handler.DlLHandler
+import top.fumiama.copymangaweb.activity.ViewMangaActivity
 import java.io.File
 import java.util.regex.Pattern
 import java.util.zip.ZipInputStream
@@ -59,12 +60,14 @@ class DlListActivity: Activity() {
                     }
                     chosenFile.name.endsWith(".zip") -> {
                         Toast.makeText(this, "加载中...", Toast.LENGTH_SHORT).show()
-                        ViewMangaActivity.zipFile = chosenFile
-                        ViewMangaActivity.titleText = it[position]
-                        ViewMangaActivity.zipPosition = position
-                        ViewMangaActivity.zipList = it.toList().toTypedArray()
-                        ViewMangaActivity.cd = cd
-                        startActivity(Intent(this, ViewMangaActivity::class.java))
+                        startActivity(
+                            Intent(this, ViewMangaActivity::class.java)
+                                .putExtra(ViewMangaActivity.EXTRA_TITLE, it[position])
+                                .putExtra(ViewMangaActivity.EXTRA_ZIP_FILE_PATH, chosenFile.absolutePath)
+                                .putExtra(ViewMangaActivity.EXTRA_ZIP_POSITION, position)
+                                .putExtra(ViewMangaActivity.EXTRA_ZIP_LIST, it.toList().toTypedArray())
+                                .putExtra(ViewMangaActivity.EXTRA_CD_PATH, cd?.absolutePath)
+                        )
                     }
                 }
             }

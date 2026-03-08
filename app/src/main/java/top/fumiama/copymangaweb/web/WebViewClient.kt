@@ -15,6 +15,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.fumiama.copymangaweb.R
 import top.fumiama.copymangaweb.activity.MainActivity.Companion.wm
+import top.fumiama.copymangaweb.tool.UrlManager
 
 class WebViewClient(private val context: Context, jsFileName: String):WebViewClient() {
     private val js = context.assets.open(jsFileName).readBytes().decodeToString()
@@ -22,7 +23,9 @@ class WebViewClient(private val context: Context, jsFileName: String):WebViewCli
         super.onPageStarted(view, url, favicon)
         Log.d("MyWC", "Load URL: $url")
         url?.let {
-            if(!it.startsWith(context.getString(R.string.web_home)) && !it.startsWith(context.getString(R.string.web_home_www))){
+            // 允许所有已知候选域名，防止切换后误拦截
+            val allowed = UrlManager.candidates.any { candidate -> it.startsWith(candidate) }
+            if (!allowed) {
                 view?.goBack()
                 Toast.makeText(context, R.string.blocked_ad, Toast.LENGTH_SHORT).show()
             }

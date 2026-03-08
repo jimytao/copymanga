@@ -1,13 +1,11 @@
 package top.fumiama.copymangaweb.tool
 
-import top.fumiama.copymangaweb.R
 import top.fumiama.copymangaweb.activity.DlActivity
 import java.io.File
 import java.lang.Thread.sleep
 import java.lang.ref.WeakReference
 import java.util.concurrent.Semaphore
 import java.util.zip.CRC32
-import java.util.zip.CheckedOutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -52,27 +50,37 @@ class MangaDlTools(activity: DlActivity) {
             zipf.parentFile?.let { if (!it.exists()) it.mkdirs() }
             if (zipf.exists()) zipf.delete()
             zipf.createNewFile()
-            val zip = ZipOutputStream(CheckedOutputStream(zipf.outputStream(), CRC32()))
-            zip.setLevel(9)
+            // WebP 已是压缩格式，使用 STORED 方式直接存储，避免 DEFLATE level 9 的无效 CPU 消耗
+            val zip = ZipOutputStream(zipf.outputStream())
+            zip.setMethod(ZipOutputStream.STORED)
             var succeed = true
             for (i in images.indices) {
-                zip.putNextEntry(ZipEntry("$i.webp"))
                 var tryTimes = 3
-                var s = false
-                while (!s && tryTimes-- > 0){
-                    s = d?.toolsBox?.resolution?.wrap(images[i])?.let { u ->
-                        dl.getHttpContent(u, d?.getString(R.string.web_home_www),
-                            d?.getString(R.string.pc_ua)
-                        )?.let { zip.write(it); true } ?: false
-                    } ?: false
-                    if (!s) {
+                var data: ByteArray? = null
+                while (data == null && tryTimes-- > 0) {
+                    data = d?.toolsBox?.resolution?.wrap(images[i])?.let { u ->
+                        dl.getHttpContent(u, UrlManager.activeUrl, d?.getString(R.string.pc_ua))
+                    }
+                    if (data == null) {
                         onDownloadedListener?.handleMessage(i + 1)
                         sleep(2000)
                     }
                 }
-                if(!s && tryTimes <= 0) succeed = false
+                val s = data != null
+                if (!s) { succeed = false } else {
+                    // STORED 方式必须提前设置 size 和 CRC
+                    val entryCrc = CRC32().also { it.update(data!!) }
+                    val entry = ZipEntry("$i.webp").apply {
+                        method = ZipEntry.STORED
+                        size = data!!.size.toLong()
+                        compressedSize = data!!.size.toLong()
+                        crc = entryCrc.value
+                    }
+                    zip.putNextEntry(entry)
+                    zip.write(data!!)
+                    zip.closeEntry()
+                }
                 onDownloadedListener?.handleMessage(s, i + 1)
-                zip.flush()
                 if (exit) break
             }
             zip.close()

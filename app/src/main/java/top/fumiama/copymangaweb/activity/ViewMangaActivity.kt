@@ -45,13 +45,16 @@ class ViewMangaActivity : ToolsBoxActivity() {
     var r2l = true
     var infoDrawerDelta = 0f
 
-    private var dialog: Dialog? = null
-    private lateinit var p: PropertiesTools
-    private var isInSeek = false
-    private var currentItem = 0
-    private var notUseVP = true
-    private var mangaZip = zipFile
-    val dlZip2View = mangaZip != null
+    // 从 Intent extras 读取的实例字段（替代原来的 companion object 静态字段）
+    var titleText = "Null"
+    var nextChapterUrl: String? = null
+    var previousChapterUrl: String? = null
+    var imgUrls = arrayOf<String>()
+    var zipPosition = 0
+    var zipList: Array<String>? = null
+    var cd: File? = null
+    private var mangaZip: File? = null
+    val dlZip2View get() = mangaZip != null
     private val volTurnPage get() = p["volturn"] == "true"
     var pageNum = 1
         get() {
@@ -78,6 +81,18 @@ class ViewMangaActivity : ToolsBoxActivity() {
         mBinding = ActivityViewmangaBinding.inflate(layoutInflater)
         setContentView(mBinding.root)
         va = WeakReference(this)
+
+        // 从 Intent extras 读取数据（替代原来的 companion object 静态字段传参）
+        titleText = intent.getStringExtra(EXTRA_TITLE) ?: "Null"
+        nextChapterUrl = intent.getStringExtra(EXTRA_NEXT_CHAPTER_URL)
+        previousChapterUrl = intent.getStringExtra(EXTRA_PREV_CHAPTER_URL)
+        imgUrls = intent.getStringArrayExtra(EXTRA_IMG_URLS) ?: emptyArray()
+        zipPosition = intent.getIntExtra(EXTRA_ZIP_POSITION, 0)
+        zipList = intent.getStringArrayExtra(EXTRA_ZIP_LIST)
+        cd = intent.getStringExtra(EXTRA_CD_PATH)?.let { File(it) }
+        mangaZip = intent.getStringExtra(EXTRA_ZIP_FILE_PATH)?.let { File(it) }
+        val pn = intent.getIntExtra(EXTRA_PAGE_NUMBER, -1)
+
         if (getSharedPreferences("app_settings", MODE_PRIVATE).getBoolean("dark_mode", false)) {
             mBinding.vcp.setBackgroundColor(android.graphics.Color.BLACK)
         }
@@ -108,10 +123,8 @@ class ViewMangaActivity : ToolsBoxActivity() {
                     prepareItems()
                     if(pn > 0) {
                         pageNum = pn
-                        pn = -1
                     } else if(pn == -2){
                         pageNum = count
-                        pn = -1
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
@@ -454,19 +467,16 @@ class ViewMangaActivity : ToolsBoxActivity() {
 
     companion object {
         var va: WeakReference<ViewMangaActivity>? = null
-        var imgUrls = arrayOf<String>()
-        var zipFile: File? = null
-        get() {
-            val re = field
-            if(field != null) field = null
-            return re
-        }
-        var titleText = "Null"
-        var nextChapterUrl: String? = null
-        var previousChapterUrl: String? = null
-        var zipPosition = 0
-        var zipList: Array<String>? = null
-        var cd: File? = null
-        var pn = -1
+
+        // Intent extra 键名常量
+        const val EXTRA_TITLE = "title"
+        const val EXTRA_NEXT_CHAPTER_URL = "nextChapterUrl"
+        const val EXTRA_PREV_CHAPTER_URL = "prevChapterUrl"
+        const val EXTRA_IMG_URLS = "imgUrls"
+        const val EXTRA_ZIP_FILE_PATH = "zipFilePath"
+        const val EXTRA_ZIP_POSITION = "zipPosition"
+        const val EXTRA_ZIP_LIST = "zipList"
+        const val EXTRA_CD_PATH = "cdPath"
+        const val EXTRA_PAGE_NUMBER = "pageNumber"
     }
 }

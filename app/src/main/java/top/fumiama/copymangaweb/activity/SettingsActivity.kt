@@ -8,8 +8,15 @@ import android.widget.ImageButton
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import top.fumiama.copymangaweb.R
 import top.fumiama.copymangaweb.tool.PropertiesTools
+import top.fumiama.copymangaweb.tool.UrlManager
 import java.io.File
 
 @Suppress("DEPRECATION")
@@ -17,6 +24,7 @@ class SettingsActivity : Activity() {
 
     private lateinit var prefs: android.content.SharedPreferences
     private lateinit var p: PropertiesTools
+    private val scope: CoroutineScope = MainScope()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         prefs = getSharedPreferences("app_settings", MODE_PRIVATE)
@@ -67,6 +75,27 @@ class SettingsActivity : Activity() {
         swPageNum.setOnCheckedChangeListener(CompoundButton.OnCheckedChangeListener { _, on ->
             p["showPageNum"] = if (on) "true" else "false"
         })
+
+        // 网络 - 服务器检测
+        val tvActiveUrl = findViewById<TextView>(R.id.tv_active_url)
+        tvActiveUrl.text = "当前：${UrlManager.activeUrl}"
+        findViewById<Button>(R.id.btn_probe_url).setOnClickListener {
+            tvActiveUrl.text = "检测中，请稍候…"
+            it.isEnabled = false
+            scope.launch {
+                val best = withContext(Dispatchers.IO) { UrlManager.probe(this@SettingsActivity) }
+                tvActiveUrl.text = "当前：$best"
+                it.isEnabled = true
+                // 通知主界面重新加载
+                MainActivity.wm?.get()?.loadHiddenUrl(best)
+                Toast.makeText(this@SettingsActivity, "已切换至 $best", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        scope.cancel()
+        super.onDestroy()
     }
 
     private fun getCacheSizeText(): String {

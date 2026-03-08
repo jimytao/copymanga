@@ -166,6 +166,50 @@
                     android:layout_height="wrap_content" />
             </LinearLayout>
 
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="网络设置"
+                android:textColor="#9C27B0"
+                android:textSize="13sp"
+                android:paddingStart="16dp"
+                android:paddingTop="16dp"
+                android:paddingBottom="4dp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:minHeight="56dp"
+                android:gravity="center_vertical"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp">
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="重新检测最快服务器"
+                        android:textSize="16sp" />
+                    <TextView
+                        android:id="@+id/tv_active_url"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="当前：检测中…"
+                        android:textSize="12sp"
+                        android:textColor="#888888" />
+                </LinearLayout>
+                <Button
+                    android:id="@+id/btn_probe_url"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="检测" />
+            </LinearLayout>
+
         </LinearLayout>
     </ScrollView>
 </LinearLayout>
