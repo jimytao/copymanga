@@ -23,10 +23,11 @@ class WebViewClient(private val context: Context, jsFileName: String):WebViewCli
         super.onPageStarted(view, url, favicon)
         Log.d("MyWC", "Load URL: $url")
         url?.let {
-            // 允许所有已知候选域名，防止切换后误拦截
-            val allowed = UrlManager.candidates.any { candidate -> it.startsWith(candidate) }
+            // 允许所有已知候选域名及其无 www 变体，防止站点跨域跳转被误拦截
+            val allowed = UrlManager.allowedPrefixes.any { prefix -> it.startsWith(prefix) }
             if (!allowed) {
-                view?.goBack()
+                // 有历史时回退，无历史时留在当前页避免白屏
+                if (view?.canGoBack() == true) view.goBack()
                 Toast.makeText(context, R.string.blocked_ad, Toast.LENGTH_SHORT).show()
             }
         }

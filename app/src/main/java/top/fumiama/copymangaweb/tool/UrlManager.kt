@@ -20,6 +20,11 @@ object UrlManager {
         "https://www.copymanga.info",
     )
 
+    /** 允许的 URL 前缀：候选域名 + 去掉 www 的变体，覆盖站点跨域跳转 */
+    val allowedPrefixes: List<String> by lazy {
+        candidates + candidates.map { it.replace("://www.", "://") }
+    }
+
     private const val PREF_NAME = "url_manager"
     private const val KEY_ACTIVE_URL = "active_url"
     private const val TAG = "UrlManager"
