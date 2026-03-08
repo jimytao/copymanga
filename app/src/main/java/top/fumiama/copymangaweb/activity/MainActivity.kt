@@ -85,7 +85,6 @@ class MainActivity: ToolsBoxActivity() {
             mBinding.root.setBackgroundColor(android.graphics.Color.BLACK)
         }
         if (prefs.getBoolean("hide_status_bar", false)) { isStatusBarHidden = true; toggleStatusBar() }
-        if (prefs.getBoolean("auto_notch", false)) setAutoNotch(true)
 
         gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onDoubleTap(e: MotionEvent): Boolean { toggleStatusBar(); return true }
@@ -121,30 +120,6 @@ class MainActivity: ToolsBoxActivity() {
         mBinding.w.post { mBinding.w.loadUrl(js) }
         window.statusBarColor = if (enabled) android.graphics.Color.BLACK else android.graphics.Color.TRANSPARENT
         mBinding.root.setBackgroundColor(if (enabled) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
-    }
-
-    fun setAutoNotch(enabled: Boolean) {
-        if (enabled) {
-            mBinding.root.post {
-                val topPx = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                    mBinding.root.rootWindowInsets
-                        ?.getInsets(android.view.WindowInsets.Type.statusBars())?.top
-                        ?: getStatusBarHeightPx()
-                } else {
-                    getStatusBarHeightPx()
-                }
-                mBinding.w.setPadding(0, topPx, 0, 0)
-                mBinding.wh.setPadding(0, topPx, 0, 0)
-            }
-        } else {
-            mBinding.w.post { mBinding.w.setPadding(0, 0, 0, 0) }
-            mBinding.wh.post { mBinding.wh.setPadding(0, 0, 0, 0) }
-        }
-    }
-
-    private fun getStatusBarHeightPx(): Int {
-        val rid = resources.getIdentifier("status_bar_height", "dimen", "android")
-        return if (rid > 0) resources.getDimensionPixelSize(rid) else 0
     }
 
     fun openSettings() { startActivity(Intent(this, SettingsActivity::class.java)) }

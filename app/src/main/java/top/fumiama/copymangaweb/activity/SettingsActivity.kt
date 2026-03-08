@@ -47,14 +47,6 @@ class SettingsActivity : Activity() {
             MainActivity.wm?.get()?.setStatusBarHidden(on)
         })
 
-        // 自动适配异形屏
-        val swAutoNotch = findViewById<Switch>(R.id.sw_auto_notch)
-        swAutoNotch.isChecked = prefs.getBoolean("auto_notch", false)
-        swAutoNotch.setOnCheckedChangeListener(CompoundButton.OnCheckedChangeListener { _, on ->
-            prefs.edit().putBoolean("auto_notch", on).apply()
-            MainActivity.wm?.get()?.setAutoNotch(on)
-        })
-
         // 清理缓存
         val tvCacheHint = findViewById<TextView>(R.id.tv_cache_hint)
         tvCacheHint.text = getCacheSizeText()
