@@ -86,7 +86,6 @@ class MainActivity: ToolsBoxActivity() {
         }
         if (prefs.getBoolean("hide_status_bar", false)) { isStatusBarHidden = true; toggleStatusBar() }
         if (prefs.getBoolean("auto_notch", false)) setAutoNotch(true)
-        else { val topDp = prefs.getInt("top_offset_dp", 0); if (topDp > 0) setTopOffset(topDp) }
 
         gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onDoubleTap(e: MotionEvent): Boolean { toggleStatusBar(); return true }
@@ -126,23 +125,26 @@ class MainActivity: ToolsBoxActivity() {
 
     fun setAutoNotch(enabled: Boolean) {
         if (enabled) {
-            mBinding.root.setOnApplyWindowInsetsListener { _, insets ->
+            mBinding.root.post {
                 val topPx = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                    insets.getInsets(android.view.WindowInsets.Type.statusBars()).top
+                    mBinding.root.rootWindowInsets
+                        ?.getInsets(android.view.WindowInsets.Type.statusBars())?.top
+                        ?: getStatusBarHeightPx()
                 } else {
-                    @Suppress("DEPRECATION")
-                    insets.systemWindowInsetTop
+                    getStatusBarHeightPx()
                 }
-                mBinding.w.post { mBinding.w.setPadding(0, topPx, 0, 0) }
-                mBinding.wh.post { mBinding.wh.setPadding(0, topPx, 0, 0) }
-                insets
+                mBinding.w.setPadding(0, topPx, 0, 0)
+                mBinding.wh.setPadding(0, topPx, 0, 0)
             }
-            mBinding.root.requestApplyInsets()
         } else {
-            mBinding.root.setOnApplyWindowInsetsListener(null)
-            val dp = getSharedPreferences("app_settings", MODE_PRIVATE).getInt("top_offset_dp", 0)
-            setTopOffset(dp)
+            mBinding.w.post { mBinding.w.setPadding(0, 0, 0, 0) }
+            mBinding.wh.post { mBinding.wh.setPadding(0, 0, 0, 0) }
         }
+    }
+
+    private fun getStatusBarHeightPx(): Int {
+        val rid = resources.getIdentifier("status_bar_height", "dimen", "android")
+        return if (rid > 0) resources.getDimensionPixelSize(rid) else 0
     }
 
     fun openSettings() { startActivity(Intent(this, SettingsActivity::class.java)) }

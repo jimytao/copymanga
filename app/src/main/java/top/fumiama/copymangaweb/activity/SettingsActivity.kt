@@ -5,8 +5,6 @@ import android.os.Bundle
 import android.widget.Button
 import android.widget.CompoundButton
 import android.widget.ImageButton
-import android.widget.LinearLayout
-import android.widget.SeekBar
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
@@ -21,7 +19,6 @@ class SettingsActivity : Activity() {
     private lateinit var p: PropertiesTools
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // 必须在 setContentView 之前设置主题
         prefs = getSharedPreferences("app_settings", MODE_PRIVATE)
         if (prefs.getBoolean("dark_mode", false)) {
             setTheme(android.R.style.Theme_DeviceDefault_NoActionBar)
@@ -33,7 +30,7 @@ class SettingsActivity : Activity() {
 
         findViewById<ImageButton>(R.id.btn_back).setOnClickListener { finish() }
 
-        // 夜间模式：切换后重建 Activity 以应用主题
+        // 夜间模式
         val swDark = findViewById<Switch>(R.id.sw_dark_mode)
         swDark.isChecked = prefs.getBoolean("dark_mode", false)
         swDark.setOnCheckedChangeListener(CompoundButton.OnCheckedChangeListener { _, on ->
@@ -51,36 +48,14 @@ class SettingsActivity : Activity() {
         })
 
         // 自动适配异形屏
-        val llOffsetContainer = findViewById<LinearLayout>(R.id.ll_top_offset_container)
-        val sbOffset = findViewById<SeekBar>(R.id.sb_top_offset)
-        val tvOffset = findViewById<TextView>(R.id.tv_top_offset_value)
-        fun setOffsetContainerEnabled(enabled: Boolean) {
-            llOffsetContainer.alpha = if (enabled) 1f else 0.4f
-            sbOffset.isEnabled = enabled
-        }
         val swAutoNotch = findViewById<Switch>(R.id.sw_auto_notch)
         swAutoNotch.isChecked = prefs.getBoolean("auto_notch", false)
-        setOffsetContainerEnabled(!swAutoNotch.isChecked)
         swAutoNotch.setOnCheckedChangeListener(CompoundButton.OnCheckedChangeListener { _, on ->
             prefs.edit().putBoolean("auto_notch", on).apply()
-            setOffsetContainerEnabled(!on)
             MainActivity.wm?.get()?.setAutoNotch(on)
         })
 
-        // 手动顶部安全距离
-        sbOffset.progress = prefs.getInt("top_offset_dp", 0)
-        tvOffset.text = "${sbOffset.progress}dp"
-        sbOffset.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(sb: SeekBar?, v: Int, fromUser: Boolean) { tvOffset.text = "${v}dp" }
-            override fun onStartTrackingTouch(sb: SeekBar?) {}
-            override fun onStopTrackingTouch(sb: SeekBar?) {
-                val dp = sb?.progress ?: 0
-                prefs.edit().putInt("top_offset_dp", dp).apply()
-                MainActivity.wm?.get()?.setTopOffset(dp)
-            }
-        })
-
-        // 清理缓存：显示实际大小
+        // 清理缓存
         val tvCacheHint = findViewById<TextView>(R.id.tv_cache_hint)
         tvCacheHint.text = getCacheSizeText()
         findViewById<Button>(R.id.btn_clear_cache).setOnClickListener {
@@ -99,17 +74,6 @@ class SettingsActivity : Activity() {
         swPageNum.isChecked = p["showPageNum"] != "false"
         swPageNum.setOnCheckedChangeListener(CompoundButton.OnCheckedChangeListener { _, on ->
             p["showPageNum"] = if (on) "true" else "false"
-        })
-
-        // 漫画页间距
-        val sbSpacing = findViewById<SeekBar>(R.id.sb_manga_spacing)
-        val tvSpacing = findViewById<TextView>(R.id.tv_manga_spacing_value)
-        sbSpacing.progress = p["mangaSpacing"].toIntOrNull() ?: 0
-        tvSpacing.text = "${sbSpacing.progress}dp"
-        sbSpacing.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(sb: SeekBar?, v: Int, fromUser: Boolean) { tvSpacing.text = "${v}dp" }
-            override fun onStartTrackingTouch(sb: SeekBar?) {}
-            override fun onStopTrackingTouch(sb: SeekBar?) { p["mangaSpacing"] = "${sb?.progress ?: 0}" }
         })
     }
 
