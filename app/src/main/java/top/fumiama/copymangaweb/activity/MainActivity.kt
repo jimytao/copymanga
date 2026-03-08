@@ -82,7 +82,6 @@ class MainActivity: ToolsBoxActivity() {
         val prefs = getSharedPreferences("app_settings", MODE_PRIVATE)
         if (prefs.getBoolean("dark_mode", false)) {
             window.statusBarColor = android.graphics.Color.BLACK
-            mBinding.root.setBackgroundColor(android.graphics.Color.BLACK)
         }
         if (prefs.getBoolean("hide_status_bar", false)) { isStatusBarHidden = true; toggleStatusBar() }
 
@@ -119,7 +118,6 @@ class MainActivity: ToolsBoxActivity() {
             "javascript:(function(){var e=document.getElementById('_dk');if(e)e.remove();})();"
         mBinding.w.post { mBinding.w.loadUrl(js) }
         window.statusBarColor = if (enabled) android.graphics.Color.BLACK else android.graphics.Color.TRANSPARENT
-        mBinding.root.setBackgroundColor(if (enabled) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
     }
 
     fun openSettings() { startActivity(Intent(this, SettingsActivity::class.java)) }
