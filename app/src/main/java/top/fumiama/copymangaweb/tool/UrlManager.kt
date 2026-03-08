@@ -14,10 +14,7 @@ object UrlManager {
     val candidates = listOf(
         "https://www.2026copy.com",
         "https://www.copy20.com",
-        "https://www.copymanga.site",
-        "https://www.copymanga.org",
-        "https://www.copymanga.tv",
-        "https://www.copymanga.info",
+        "https://www.mangacopy.com",
     )
 
     /** 允许的 URL 前缀：候选域名 + 去掉 www 的变体，覆盖站点跨域跳转 */
