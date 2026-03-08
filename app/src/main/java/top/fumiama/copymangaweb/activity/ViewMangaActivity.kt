@@ -78,6 +78,9 @@ class ViewMangaActivity : ToolsBoxActivity() {
         mBinding = ActivityViewmangaBinding.inflate(layoutInflater)
         setContentView(mBinding.root)
         va = WeakReference(this)
+        if (getSharedPreferences("app_settings", MODE_PRIVATE).getBoolean("dark_mode", false)) {
+            mBinding.vcp.setBackgroundColor(android.graphics.Color.BLACK)
+        }
         p = PropertiesTools(File("$filesDir/settings.properties"))
         r2l = p["r2l"] == "true"
         notUseVP = p["noAnimation"] == "true"
@@ -331,7 +334,6 @@ class ViewMangaActivity : ToolsBoxActivity() {
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         tt.canDo = false
-        wm?.get()?.mBinding?.w?.goBack()
         super.onBackPressed()
     }
 

@@ -79,44 +79,50 @@ class MainActivity: ToolsBoxActivity() {
         }
         SetDraggable().with(this).onto(mBinding.fab)
 
-        // Apply saved settings
         val prefs = getSharedPreferences("app_settings", MODE_PRIVATE)
-        if (prefs.getBoolean("hide_status_bar", false)) {
-            isStatusBarHidden = true
-            toggleStatusBar()
+        if (prefs.getBoolean("dark_mode", false)) {
+            window.statusBarColor = android.graphics.Color.BLACK
+            mBinding.root.setBackgroundColor(android.graphics.Color.BLACK)
         }
-        val topOffsetDp = prefs.getInt("top_offset_dp", 0)
-        if (topOffsetDp > 0) setTopOffset(topOffsetDp)
+        if (prefs.getBoolean("hide_status_bar", false)) { isStatusBarHidden = true; toggleStatusBar() }
 
         gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
-            override fun onDoubleTap(e: MotionEvent): Boolean {
-                toggleStatusBar()
-                return true
-            }
+            override fun onDoubleTap(e: MotionEvent): Boolean { toggleStatusBar(); return true }
         })
-        mBinding.w.setOnTouchListener { v, event ->
-            gestureDetector.onTouchEvent(event)
-            false
-        }
+        mBinding.w.setOnTouchListener { _, event -> gestureDetector.onTouchEvent(event); false }
     }
 
     private fun toggleStatusBar() {
         isStatusBarHidden = !isStatusBarHidden
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            if (isStatusBarHidden) {
-                window.insetsController?.hide(WindowInsets.Type.statusBars())
-            } else {
-                window.insetsController?.show(WindowInsets.Type.statusBars())
-            }
+            if (isStatusBarHidden) window.insetsController?.hide(WindowInsets.Type.statusBars())
+            else window.insetsController?.show(WindowInsets.Type.statusBars())
         } else {
             @Suppress("DEPRECATION")
-            if (isStatusBarHidden) {
-                window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
-            } else {
-                window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
-            }
+            if (isStatusBarHidden) window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+            else window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
         }
     }
+
+    fun setStatusBarHidden(hidden: Boolean) { if (hidden != isStatusBarHidden) toggleStatusBar() }
+
+    fun setTopOffset(dp: Int) {
+        val px = (dp * resources.displayMetrics.density).toInt()
+        mBinding.w.post { mBinding.w.setPadding(0, px, 0, 0) }
+        mBinding.wh.post { mBinding.wh.setPadding(0, px, 0, 0) }
+    }
+
+    fun applyDarkMode(enabled: Boolean) {
+        val js = if (enabled)
+            "javascript:(function(){var e=document.getElementById('_dk');if(!e){e=document.createElement('style');e.id='_dk';document.head.appendChild(e);}e.textContent='html{filter:invert(1) hue-rotate(180deg)!important}img,video{filter:invert(1) hue-rotate(180deg)!important}'})();"
+        else
+            "javascript:(function(){var e=document.getElementById('_dk');if(e)e.remove();})();"
+        mBinding.w.post { mBinding.w.loadUrl(js) }
+        window.statusBarColor = if (enabled) android.graphics.Color.BLACK else android.graphics.Color.TRANSPARENT
+        mBinding.root.setBackgroundColor(if (enabled) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
+    }
+
+    fun openSettings() { startActivity(Intent(this, SettingsActivity::class.java)) }
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
