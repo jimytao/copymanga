@@ -36,5 +36,7 @@
         <activity
             android:name=".activity.SettingsActivity"
             android:theme="@style/AppTheme"/>
+        <activity android:name=".activity.CartoonListActivity"/>
+        <activity android:name=".activity.CartoonDetailActivity"/>
     </application>
 </manifest>

@@ -112,4 +112,5 @@ dependencies {
     annotationProcessor 'com.github.bumptech.glide:compiler:4.16.0'
     implementation 'com.google.code.gson:gson:2.13.1'
     implementation 'top.fumiama:sdict:0.1.1'
+    implementation 'com.google.android.material:material:1.12.0'
 }

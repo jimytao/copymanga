@@ -15,6 +15,7 @@ import android.webkit.ValueCallback
 import android.webkit.WebView
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
+import com.google.android.material.bottomnavigation.BottomNavigationView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -99,6 +100,22 @@ class MainActivity: ToolsBoxActivity() {
             override fun onDoubleTap(e: MotionEvent): Boolean { toggleStatusBar(); return true }
         })
         mBinding.w.setOnTouchListener { _, event -> gestureDetector.onTouchEvent(event); false }
+
+        mBinding.bottomNav.setOnItemSelectedListener { item ->
+            when (item.itemId) {
+                R.id.nav_manga -> true
+                R.id.nav_cartoon -> {
+                    startActivity(Intent(this, CartoonListActivity::class.java))
+                    false
+                }
+                else -> false
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        mBinding.bottomNav.selectedItemId = R.id.nav_manga
     }
 
     private fun toggleStatusBar() {
@@ -123,15 +140,25 @@ class MainActivity: ToolsBoxActivity() {
 
     fun applyDarkMode(enabled: Boolean) {
         val js = if (enabled)
-            "javascript:(function(){var e=document.getElementById('_dk');if(!e){e=document.createElement('style');e.id='_dk';document.head.appendChild(e);}e.textContent='html{filter:invert(1) hue-rotate(180deg)!important}img,video{filter:invert(1) hue-rotate(180deg)!important}'})();"
+            "javascript:(function(){var e=document.getElementById('_dark');if(!e){e=document.createElement('style');e.id='_dark';document.head.appendChild(e);}e.textContent='html{filter:invert(1) hue-rotate(180deg)!important}img,video{filter:invert(1) hue-rotate(180deg)!important}'})();"
         else
-            "javascript:(function(){var e=document.getElementById('_dk');if(e)e.remove();})();"
+            "javascript:(function(){var e=document.getElementById('_dark');if(e)e.remove();})();"
         mBinding.w.post { mBinding.w.loadUrl(js) }
-        window.statusBarColor = if (enabled) android.graphics.Color.BLACK else android.graphics.Color.TRANSPARENT
-        mBinding.root.setBackgroundColor(if (enabled) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
     }
 
     fun openSettings() { startActivity(Intent(this, SettingsActivity::class.java)) }
+
+    fun showSettingsFab() {
+        lifecycleScope.launch { mViewModel.setSettingsFabVisibility(true) }
+    }
+
+    fun hideSettingsFab() {
+        lifecycleScope.launch { mViewModel.setSettingsFabVisibility(false) }
+    }
+
+    fun onSettingsFabClicked(v: View) {
+        startActivity(Intent(this, SettingsActivity::class.java))
+    }
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
@@ -141,11 +168,9 @@ class MainActivity: ToolsBoxActivity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == FILE_CHOOSER_RESULT_CODE) {  //处理返回的图片，并进行上传
+        if (requestCode == FILE_CHOOSER_RESULT_CODE) {
             if (uploadMessageAboveL == null || resultCode != RESULT_OK) return
-            data?.let {
-                onActivityResultAboveL(requestCode, resultCode, it)
-            }
+            data?.let { onActivityResultAboveL(requestCode, resultCode, it) }
         }
     }
 
@@ -207,36 +232,6 @@ class MainActivity: ToolsBoxActivity() {
         lifecycleScope.launch { mViewModel.setFabVisibility(false) }
     }
 
-    fun showSettingsFab() {
-        lifecycleScope.launch { mViewModel.setSettingsFabVisibility(true) }
-    }
-
-    fun hideSettingsFab() {
-        lifecycleScope.launch { mViewModel.setSettingsFabVisibility(false) }
-    }
-
-    fun onSettingsFabClicked(v: View) {
-        startActivity(Intent(this, SettingsActivity::class.java))
-    }
-
-    fun applyDarkMode(enabled: Boolean) {
-        val js = if (enabled)
-            "javascript:(function(){var e=document.getElementById('_dark');if(!e){e=document.createElement('style');e.id='_dark';document.head.appendChild(e);}e.textContent='html{filter:invert(1) hue-rotate(180deg)!important}img,video{filter:invert(1) hue-rotate(180deg)!important}'})();"
-        else
-            "javascript:(function(){var e=document.getElementById('_dark');if(e)e.remove();})();"
-        mBinding.w.post { mBinding.w.loadUrl(js) }
-    }
-
-    fun setStatusBarHidden(hidden: Boolean) {
-        if (hidden != isStatusBarHidden) toggleStatusBar()
-    }
-
-    fun setTopOffset(dp: Int) {
-        val px = (dp * resources.displayMetrics.density).toInt()
-        mBinding.w.post { mBinding.w.setPadding(0, px, 0, 0) }
-        mBinding.wh.post { mBinding.wh.setPadding(0, px, 0, 0) }
-    }
-
     fun onFabClicked(v: View) {
         DlListActivity.currentDir = getExternalFilesDir("")
         startActivity(
@@ -246,7 +241,6 @@ class MainActivity: ToolsBoxActivity() {
     }
 
     fun openImageChooserActivity() {
-        // 调用自己的图库
         startActivityForResult(
             Intent.createChooser(
                 Intent(Intent.ACTION_GET_CONTENT)

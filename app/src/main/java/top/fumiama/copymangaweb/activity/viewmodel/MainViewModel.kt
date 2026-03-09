@@ -29,4 +29,10 @@ class MainViewModel: ViewModel() {
         }
     }
 
+    suspend fun setSettingsFabVisibility(visible: Boolean) {
+        withContext(Dispatchers.Main) {
+            settingsFabVisibility.value = if (visible) View.VISIBLE else View.GONE
+        }
+    }
+
 }
