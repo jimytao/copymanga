@@ -48,11 +48,13 @@ object CartoonApi {
 
     suspend fun getCartoons(offset: Int = 0, limit: Int = 24): CartoonListResult? = withContext(Dispatchers.IO) {
         val json = get("/api/v3/cartoons?limit=$limit&offset=$offset&ordering=-popular") ?: return@withContext null
+        Log.d(TAG, "getCartoons raw: ${json.take(500)}")
         runCatching {
             val type = object : TypeToken<CartoonApiResponse<CartoonListResult>>() {}.type
             val resp: CartoonApiResponse<CartoonListResult> = gson.fromJson(json, type)
+            Log.d(TAG, "getCartoons parsed: code=${resp.code} results=${resp.results}")
             if (resp.code == 200) resp.results else null
-        }.getOrNull()
+        }.onFailure { Log.e(TAG, "getCartoons parse error", it) }.getOrNull()
     }
 
     suspend fun searchCartoons(keyword: String, offset: Int = 0): CartoonListResult? = withContext(Dispatchers.IO) {
