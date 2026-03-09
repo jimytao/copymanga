@@ -10,6 +10,7 @@ import top.fumiama.copymangaweb.handler.MainHandler
 class JSHidden {
     @JavascriptInterface
     fun loadChapter(listString: String){
+        Log.d("MyJSH", "loadChapter called, lines=${listString.lines().size}, preview=${listString.take(200)}")
         wm?.get()?.callViewManga(listString)
     }
     @JavascriptInterface

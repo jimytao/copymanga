@@ -14,7 +14,7 @@ class JS {
             url.contains("/comicContent/") -> "$base/${url.substringAfter("comicContent/").substringBefore("/")}/chapter/${url.substringAfterLast("/")}"
             else -> ""
         }
-        Log.d("MyJS", "Load comic: $u")
+        Log.d("MyJS", "loadComic: src=$url -> hidden=$u")
         wm?.get()?.loadHiddenUrl(u)
     }
     @JavascriptInterface

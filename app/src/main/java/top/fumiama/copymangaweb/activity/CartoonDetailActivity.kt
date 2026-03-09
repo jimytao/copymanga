@@ -1,5 +1,6 @@
 package top.fumiama.copymangaweb.activity
 
+import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -9,7 +10,6 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.bumptech.glide.Glide
@@ -18,6 +18,7 @@ import kotlinx.coroutines.launch
 import top.fumiama.copymangaweb.R
 import top.fumiama.copymangaweb.data.Episode
 import top.fumiama.copymangaweb.tool.CartoonApi
+import top.fumiama.copymangaweb.tool.UrlManager
 
 class CartoonDetailActivity : AppCompatActivity() {
 
@@ -87,12 +88,12 @@ class CartoonDetailActivity : AppCompatActivity() {
             if (episodes == null || episodes.list.isEmpty()) {
                 tvEpisodesEmpty.visibility = View.VISIBLE
             } else {
-                bindEpisodes(llEpisodes, episodes.list)
+                bindEpisodes(llEpisodes, episodes.list, pathWord)
             }
         }
     }
 
-    private fun bindEpisodes(container: LinearLayout, list: List<Episode>) {
+    private fun bindEpisodes(container: LinearLayout, list: List<Episode>, pathWord: String) {
         val inflater = LayoutInflater.from(this)
         // Sort by name so EP order is natural
         val sorted = list.sortedWith(compareBy { ep ->
@@ -104,7 +105,14 @@ class CartoonDetailActivity : AppCompatActivity() {
             v.findViewById<TextView>(R.id.tvEpisodeName).text = ep.name
             v.findViewById<TextView>(R.id.tvEpisodeDate).text = ep.datetime_updated?.take(10) ?: ""
             v.setOnClickListener {
-                Toast.makeText(this, "视频播放功能将在登录功能完成后支持", Toast.LENGTH_SHORT).show()
+                val url = "${UrlManager.activeUrl}/anime/$pathWord/chapter/${ep.uuid}"
+                MainActivity.wm?.get()?.let { main ->
+                    main.mBinding.w.post { main.mBinding.w.loadUrl(url) }
+                    startActivity(
+                        Intent(this, MainActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    )
+                }
             }
             container.addView(v)
         }
