@@ -54,6 +54,7 @@ if (typeof (loaded) == "undefined") {
     function modify() {
         var url = location.href;
         GM.hideFab();
+        GM.hideSettingsFab();
         if (url.endsWith("/index")) {
             invoke.pinTitle();
         }

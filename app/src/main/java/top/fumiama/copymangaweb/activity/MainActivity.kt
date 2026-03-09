@@ -207,6 +207,36 @@ class MainActivity: ToolsBoxActivity() {
         lifecycleScope.launch { mViewModel.setFabVisibility(false) }
     }
 
+    fun showSettingsFab() {
+        lifecycleScope.launch { mViewModel.setSettingsFabVisibility(true) }
+    }
+
+    fun hideSettingsFab() {
+        lifecycleScope.launch { mViewModel.setSettingsFabVisibility(false) }
+    }
+
+    fun onSettingsFabClicked(v: View) {
+        startActivity(Intent(this, SettingsActivity::class.java))
+    }
+
+    fun applyDarkMode(enabled: Boolean) {
+        val js = if (enabled)
+            "javascript:(function(){var e=document.getElementById('_dark');if(!e){e=document.createElement('style');e.id='_dark';document.head.appendChild(e);}e.textContent='html{filter:invert(1) hue-rotate(180deg)!important}img,video{filter:invert(1) hue-rotate(180deg)!important}'})();"
+        else
+            "javascript:(function(){var e=document.getElementById('_dark');if(e)e.remove();})();"
+        mBinding.w.post { mBinding.w.loadUrl(js) }
+    }
+
+    fun setStatusBarHidden(hidden: Boolean) {
+        if (hidden != isStatusBarHidden) toggleStatusBar()
+    }
+
+    fun setTopOffset(dp: Int) {
+        val px = (dp * resources.displayMetrics.density).toInt()
+        mBinding.w.post { mBinding.w.setPadding(0, px, 0, 0) }
+        mBinding.wh.post { mBinding.wh.setPadding(0, px, 0, 0) }
+    }
+
     fun onFabClicked(v: View) {
         DlListActivity.currentDir = getExternalFilesDir("")
         startActivity(
