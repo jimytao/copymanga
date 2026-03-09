@@ -45,6 +45,8 @@ class DlActivity : ToolsBoxActivity() {
     private var canDl = false
     private lateinit var mangaDlTools: MangaDlTools
     var multiSelect = false
+    // 本地章节文件名列表，替代原来通过 ViewMangaActivity.zipList 传递的静态字段
+    private var zipList: Array<String> = arrayOf()
 
     @SuppressLint("SetTextI18n")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -169,7 +171,7 @@ class DlActivity : ToolsBoxActivity() {
     }
 
     private fun analyzeStructure() {
-        ViewMangaActivity.zipList = arrayOf()
+        zipList = arrayOf()
         Gson().fromJson(json?.reader(), Array<ComicStructure>::class.java)?.let {
             for (group in it) {
                 val tc = layoutInflater.inflate(R.layout.line_caption, mBinding.ldwn, false)
@@ -248,8 +250,8 @@ class DlActivity : ToolsBoxActivity() {
         tbtnlist += tbvTbtn
         tbvTbtn.url = url
         tbtncnt++
-        val zipPosition = ViewMangaActivity.zipList?.size
-        ViewMangaActivity.zipList = ViewMangaActivity.zipList?.plus("$title.zip")
+        val zipPosition = zipList.size
+        zipList = zipList.plus("$title.zip")
         tbvTbtn.textOff = title
         tbvTbtn.textOn = title
         tbvTbtn.text = title
@@ -321,13 +323,15 @@ class DlActivity : ToolsBoxActivity() {
         handler.sendEmptyMessage(6)
     }
 
-    private fun callVM(titleText: String, zipFile: File, zipPosition:Int) {
-        ViewMangaActivity.titleText = titleText
-        ViewMangaActivity.zipFile = zipFile
-        //ViewMangaActivity.zipList = zipArrayList
-        ViewMangaActivity.zipPosition = zipPosition
-        ViewMangaActivity.cd = zipFile.parentFile
-        startActivity(Intent(this@DlActivity, ViewMangaActivity::class.java))
+    private fun callVM(titleText: String, zipFile: File, zipPosition: Int) {
+        startActivity(
+            Intent(this@DlActivity, ViewMangaActivity::class.java)
+                .putExtra(ViewMangaActivity.EXTRA_TITLE, titleText)
+                .putExtra(ViewMangaActivity.EXTRA_ZIP_FILE_PATH, zipFile.absolutePath)
+                .putExtra(ViewMangaActivity.EXTRA_ZIP_POSITION, zipPosition)
+                .putExtra(ViewMangaActivity.EXTRA_ZIP_LIST, zipList)
+                .putExtra(ViewMangaActivity.EXTRA_CD_PATH, zipFile.parentFile?.absolutePath)
+        )
     }
 
     private fun deleteChapter(f: File, v: ToggleButton) {

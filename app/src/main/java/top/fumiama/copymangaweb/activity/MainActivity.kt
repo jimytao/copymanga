@@ -13,6 +13,7 @@ import android.view.WindowInsets
 import android.view.WindowManager
 import android.webkit.ValueCallback
 import android.webkit.WebView
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -27,6 +28,7 @@ import top.fumiama.copymangaweb.handler.MainHandler
 import top.fumiama.copymangaweb.tool.MangaDlTools.Companion.wmdlt
 import top.fumiama.copymangaweb.tool.SetDraggable
 import top.fumiama.copymangaweb.tool.Updater
+import top.fumiama.copymangaweb.tool.UrlManager
 import top.fumiama.copymangaweb.web.JS
 import top.fumiama.copymangaweb.web.JSHidden
 import top.fumiama.copymangaweb.web.WebChromeClient
@@ -42,6 +44,7 @@ class MainActivity: ToolsBoxActivity() {
 
     @SuppressLint("JavascriptInterface")
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         mBinding = ActivityMainBinding.inflate(layoutInflater)
         mBinding.mainViewModel = mViewModel
@@ -57,25 +60,31 @@ class MainActivity: ToolsBoxActivity() {
             }
 
             lifecycleScope.launch {
-                withContext(Dispatchers.IO) {
-                    goCheckUpdate(false)
+                // 首次启动：并发探测最快地址后再加载；后续启动：立即用缓存地址，后台更新
+                if (!UrlManager.hasCachedUrl(this@MainActivity)) {
+                    withContext(Dispatchers.IO) { UrlManager.probe(this@MainActivity) }
+                } else {
+                    UrlManager.init(this@MainActivity)
+                    launch(Dispatchers.IO) { UrlManager.probe(this@MainActivity) }
                 }
+
+                launch(Dispatchers.IO) { goCheckUpdate(false) }
+
+                WebView.setWebContentsDebuggingEnabled(true)
+                mBinding.w.apply { post {
+                    setWebViewClient("i.js")
+                    webChromeClient = WebChromeClient()
+                    loadJSInterface(JS())
+                    loadUrl(UrlManager.activeUrl)
+                } }
+
+                mBinding.wh.apply { post {
+                    settings.userAgentString = getString(R.string.pc_ua)
+                    webChromeClient = WebChromeClient()
+                    setWebViewClient("h.js")
+                    loadJSInterface(JSHidden())
+                } }
             }
-
-            WebView.setWebContentsDebuggingEnabled(true)
-            mBinding.w.apply { post {
-                setWebViewClient("i.js")
-                webChromeClient = WebChromeClient()
-                loadJSInterface(JS())
-                loadUrl(getString(R.string.web_home))
-            } }
-
-            mBinding.wh.apply { post {
-                settings.userAgentString = getString(R.string.pc_ua)
-                webChromeClient = WebChromeClient()
-                setWebViewClient("h.js")
-                loadJSInterface(JSHidden())
-            } }
         }
         SetDraggable().with(this).onto(mBinding.fab)
 
@@ -251,13 +260,15 @@ class MainActivity: ToolsBoxActivity() {
         lifecycleScope.launch { withContext(Dispatchers.IO) {
             val listChapter = content.split('\n')
             if(!saveUrlsOnly) {
-                ViewMangaActivity.titleText = listChapter[0].substringBeforeLast(' ')
-                ViewMangaActivity.nextChapterUrl = listChapter[1].let { if(it == "null") null else it }
-                ViewMangaActivity.previousChapterUrl = listChapter[2].let { if(it == "null") null else it }
-                ViewMangaActivity.imgUrls = arrayOf()
-                for(i in 3 until listChapter.size) ViewMangaActivity.imgUrls += listChapter[i]
+                val imgs = Array(maxOf(0, listChapter.size - 3)) { listChapter[it + 3] }
                 withContext(Dispatchers.Main) {
-                    startActivity(Intent(this@MainActivity, ViewMangaActivity::class.java))
+                    startActivity(
+                        Intent(this@MainActivity, ViewMangaActivity::class.java)
+                            .putExtra(ViewMangaActivity.EXTRA_TITLE, listChapter[0].substringBeforeLast(' '))
+                            .putExtra(ViewMangaActivity.EXTRA_NEXT_CHAPTER_URL, listChapter[1].let { if(it == "null") null else it })
+                            .putExtra(ViewMangaActivity.EXTRA_PREV_CHAPTER_URL, listChapter[2].let { if(it == "null") null else it })
+                            .putExtra(ViewMangaActivity.EXTRA_IMG_URLS, imgs)
+                    )
                 }
             } else {
                 var imgs = arrayOf<String>()

@@ -26,32 +26,39 @@ class PagesManager(w: WeakReference<ViewMangaActivity>) {
                     isEndL = false
                 }
             } else {
-                val chapterUrl = if(goNext) ViewMangaActivity.nextChapterUrl else ViewMangaActivity.previousChapterUrl
+                val chapterUrl = if(goNext) v?.nextChapterUrl else v?.previousChapterUrl
                 if (chapterUrl != null) {
                     if (if(goNext)isEndR else isEndL) {
-                        if(!goNext) ViewMangaActivity.pn = -2
+                        val pnHint = if(!goNext) -2 else -1
                         wm?.get()?.mBinding?.w?.apply { post {
                             loadUrl("javascript:invoke.clickClass(\"comicControlBottomTopClick\",${if(goNext)1 else 0});")
                         } }
                         v.tt.canDo = false
+                        // pn hint 通过下次 WebView 触发 callViewManga 时的 Intent 传递，无需静态字段
                         v.finish()
                     } else doubleTapToast(goNext)
                 } else {
-                    val newZipPosition = ViewMangaActivity.zipPosition + (if(goNext) 1 else -1)
-                    if(v.dlZip2View && newZipPosition >= 0 && newZipPosition <
-                        (ViewMangaActivity.zipList?.size ?: 0)){
+                    val newZipPosition = (v?.zipPosition ?: 0) + (if(goNext) 1 else -1)
+                    if(v?.dlZip2View == true && newZipPosition >= 0 && newZipPosition <
+                        (v.zipList?.size ?: 0)){
                         if (if(goNext)isEndR else isEndL){
-                            if(!goNext) ViewMangaActivity.pn = -2
-                            ViewMangaActivity.zipPosition = newZipPosition
-                            ViewMangaActivity.titleText = ViewMangaActivity.zipList?.get(newZipPosition) ?: "null"
-                            ViewMangaActivity.zipFile = File(ViewMangaActivity.cd, ViewMangaActivity.titleText)
-                            v.startActivity(Intent(v, ViewMangaActivity::class.java))
+                            val newTitle = v.zipList?.get(newZipPosition) ?: "null"
+                            val newFile = File(v.cd, newTitle)
+                            v.startActivity(
+                                Intent(v, ViewMangaActivity::class.java)
+                                    .putExtra(ViewMangaActivity.EXTRA_TITLE, newTitle)
+                                    .putExtra(ViewMangaActivity.EXTRA_ZIP_FILE_PATH, newFile.absolutePath)
+                                    .putExtra(ViewMangaActivity.EXTRA_ZIP_POSITION, newZipPosition)
+                                    .putExtra(ViewMangaActivity.EXTRA_ZIP_LIST, v.zipList)
+                                    .putExtra(ViewMangaActivity.EXTRA_CD_PATH, v.cd?.absolutePath)
+                                    .putExtra(ViewMangaActivity.EXTRA_PAGE_NUMBER, if(!goNext) -2 else -1)
+                            )
                             v.tt.canDo = false
                             v.finish()
                         }else doubleTapToast(goNext)
                     }
                     else Toast.makeText(
-                        v.applicationContext,
+                        v?.applicationContext,
                         "已经到头了~",
                         Toast.LENGTH_SHORT
                     ).show()
