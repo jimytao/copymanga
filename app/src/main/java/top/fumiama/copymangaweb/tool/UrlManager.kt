@@ -10,11 +10,11 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 object UrlManager {
-    // 候选域名列表：大陆无障碍地址优先，其余按优先级排列
+    // 候选域名列表：首选 .com 主站，2026copy 作为最后备用
     val candidates = listOf(
-        "https://www.2026copy.com",
-        "https://www.copy20.com",
         "https://www.mangacopy.com",
+        "https://www.copy20.com",
+        "https://www.2026copy.com",
     )
 
     /** 允许的 URL 前缀：候选域名 + 去掉 www 的变体，覆盖站点跨域跳转 */
