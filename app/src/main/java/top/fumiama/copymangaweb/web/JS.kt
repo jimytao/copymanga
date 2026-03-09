@@ -27,4 +27,8 @@ class JS {
     }
     @JavascriptInterface
     fun openSettings() { wm?.get()?.openSettings() }
+    @JavascriptInterface
+    fun showSettingsFab() { wm?.get()?.showSettingsFab() }
+    @JavascriptInterface
+    fun hideSettingsFab() { wm?.get()?.hideSettingsFab() }
 }

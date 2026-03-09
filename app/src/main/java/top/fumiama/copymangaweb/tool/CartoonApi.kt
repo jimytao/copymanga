@@ -24,11 +24,13 @@ object CartoonApi {
             try {
                 val conn = URL("$base$path").openConnection() as HttpURLConnection
                 conn.requestMethod = "GET"
-                conn.connectTimeout = 8000
-                conn.readTimeout = 8000
-                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36")
+                conn.connectTimeout = 15000
+                conn.readTimeout = 15000
+                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
                 conn.setRequestProperty("platform", "3")
                 conn.setRequestProperty("Accept", "application/json")
+                conn.setRequestProperty("Referer", "https://www.mangacopy.com/")
+                conn.setRequestProperty("Origin", "https://www.mangacopy.com")
                 if (conn.responseCode == 200) {
                     val text = conn.inputStream.bufferedReader().readText()
                     conn.disconnect()

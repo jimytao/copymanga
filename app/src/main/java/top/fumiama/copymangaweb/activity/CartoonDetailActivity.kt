@@ -1,5 +1,6 @@
 package top.fumiama.copymangaweb.activity
 
+import android.graphics.Color
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -33,6 +34,9 @@ class CartoonDetailActivity : AppCompatActivity() {
         val pathWord = intent.getStringExtra(EXTRA_PATH_WORD) ?: return
         val nameHint = intent.getStringExtra(EXTRA_NAME) ?: ""
         val coverHint = intent.getStringExtra(EXTRA_COVER) ?: ""
+
+        val isDark = getSharedPreferences("app_settings", MODE_PRIVATE).getBoolean("dark_mode", false)
+        if (isDark) window.decorView.setBackgroundColor(Color.BLACK)
 
         val btnBack = findViewById<ImageButton>(R.id.btnBack)
         val tvTitle = findViewById<TextView>(R.id.tvTitle)

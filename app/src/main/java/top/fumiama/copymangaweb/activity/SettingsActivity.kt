@@ -1,6 +1,7 @@
 package top.fumiama.copymangaweb.activity
 
 import android.app.Activity
+import android.content.Intent
 import android.os.Bundle
 import android.widget.Button
 import android.widget.CompoundButton
@@ -75,6 +76,11 @@ class SettingsActivity : Activity() {
         swPageNum.setOnCheckedChangeListener(CompoundButton.OnCheckedChangeListener { _, on ->
             p["showPageNum"] = if (on) "true" else "false"
         })
+
+        // 动漫版块
+        findViewById<Button>(R.id.btn_cartoon).setOnClickListener {
+            startActivity(Intent(this, CartoonListActivity::class.java))
+        }
 
         // 网络 - 服务器检测
         val tvActiveUrl = findViewById<TextView>(R.id.tv_active_url)

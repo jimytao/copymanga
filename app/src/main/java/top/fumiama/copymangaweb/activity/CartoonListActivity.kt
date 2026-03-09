@@ -1,6 +1,7 @@
 package top.fumiama.copymangaweb.activity
 
 import android.content.Intent
+import android.graphics.Color
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.View
@@ -40,6 +41,10 @@ class CartoonListActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_cartoon_list)
+
+        // 暗黑模式
+        val isDark = getSharedPreferences("app_settings", MODE_PRIVATE).getBoolean("dark_mode", false)
+        if (isDark) window.decorView.setBackgroundColor(Color.BLACK)
 
         rv = findViewById(R.id.rvCartoons)
         progress = findViewById(R.id.progressBar)

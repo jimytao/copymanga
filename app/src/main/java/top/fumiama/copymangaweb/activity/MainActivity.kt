@@ -15,7 +15,6 @@ import android.webkit.ValueCallback
 import android.webkit.WebView
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
-import com.google.android.material.bottomnavigation.BottomNavigationView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -100,22 +99,6 @@ class MainActivity: ToolsBoxActivity() {
             override fun onDoubleTap(e: MotionEvent): Boolean { toggleStatusBar(); return true }
         })
         mBinding.w.setOnTouchListener { _, event -> gestureDetector.onTouchEvent(event); false }
-
-        mBinding.bottomNav.setOnItemSelectedListener { item ->
-            when (item.itemId) {
-                R.id.nav_manga -> true
-                R.id.nav_cartoon -> {
-                    startActivity(Intent(this, CartoonListActivity::class.java))
-                    false
-                }
-                else -> false
-            }
-        }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        mBinding.bottomNav.selectedItemId = R.id.nav_manga
     }
 
     private fun toggleStatusBar() {
