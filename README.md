@@ -1,5 +1,5 @@
 # copymanga Lite
-拷贝漫画的第三方APP，fork自fumiama的copymanga repo 
+拷贝漫画的第三方APP，fork自fumiama的copymanga repo web branch <https://github.com/fumiama/copymanga/tree/web>
 # 说明
 本应用基于官方的`HLML5`手机版本网页端，作者不对其中呈现的任何内容负责
 # 主要改进
