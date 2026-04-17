@@ -12,3 +12,10 @@
 /captures
 .externalNativeBuild
 .cxx
+
+# 隐私文件 - 不上传
+app/signing.properties
+*.jks
+*.keystore
+CLAUDE.md
+CHANGELOG.md

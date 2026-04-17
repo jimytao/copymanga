@@ -5,9 +5,7 @@ if (typeof (loaded) == "undefined") {
         var chapterList = chapter.getElementsByClassName("tab-pane fade show active")[0].getElementsByTagName("ul")[0].getElementsByTagName("a");
         var chapterArr = Array();
         for (var i = 0; i < chapterList.length; i++) {
-            chapterArr.push(JSON.constructor());
-            chapterArr[i]["name"] = chapterList[i].title;
-            chapterArr[i]["url"] = chapterList[i].href;
+            chapterArr.push({"name": chapterList[i].title, "url": chapterList[i].href});
         }
         return chapterArr;
     }
@@ -33,9 +31,13 @@ if (typeof (loaded) == "undefined") {
                 const currentHeight = document.body.scrollHeight;
                 if (Math.round(window.innerHeight+window.scrollY+0.5) >= currentHeight) { /*避免小数不符无法触发*/
                     if (currentHeight === prevHeight) {
-                        var images = document.getElementsByClassName("container-fluid comicContent")[0].getElementsByTagName("li");
-                        var nextChapter = document.getElementsByClassName("comicContent-next")[0].getElementsByTagName("a")[0].href;
-                        var prevChapter = document.getElementsByClassName("comicContent-prev")[1].getElementsByTagName("a")[0].href;
+                        var contentEl = document.getElementsByClassName("container-fluid comicContent")[0];
+                        var nextEl = document.getElementsByClassName("comicContent-next")[0];
+                        var prevEl = document.getElementsByClassName("comicContent-prev")[1];
+                        if (!contentEl || !nextEl || !prevEl) { GM.setLoadingDialog(false); return; }
+                        var images = contentEl.getElementsByTagName("li");
+                        var nextChapter = nextEl.getElementsByTagName("a")[0]?.href ?? location.href;
+                        var prevChapter = prevEl.getElementsByTagName("a")[0]?.href ?? location.href;
                         if(nextChapter == location.href) nextChapter = "null";
                         if(prevChapter == location.href) prevChapter = "null";
                         var result = document.title.split(" - ")[1] + " " + location.href.substring(location.href.lastIndexOf("/")+1) + "\n" + nextChapter + "\n" + prevChapter;
@@ -68,8 +70,7 @@ if (typeof (loaded) == "undefined") {
                     newObj = null;
                 }
                 else {
-                    newObj = JSON.constructor();
-                    newObj["name"] = chapters[i].innerText;
+                    newObj = {"name": chapters[i].innerText};
                 }
             }
             GM.setTitle(document.getElementsByTagName("h6")[0].title);

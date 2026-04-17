@@ -86,8 +86,10 @@ class SettingsActivity : Activity() {
                 val best = withContext(Dispatchers.IO) { UrlManager.probe(this@SettingsActivity) }
                 tvActiveUrl.text = "当前：$best"
                 it.isEnabled = true
-                // 通知主界面重新加载
-                MainActivity.wm?.get()?.loadHiddenUrl(best)
+                MainActivity.wm?.get()?.let { ma ->
+                    ma.mBinding.w.post { ma.mBinding.w.loadUrl(best) }
+                    ma.mBinding.wh.post { ma.mBinding.wh.loadUrl(best) }
+                }
                 Toast.makeText(this@SettingsActivity, "已切换至 $best", Toast.LENGTH_SHORT).show()
             }
         }

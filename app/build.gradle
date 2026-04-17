@@ -10,8 +10,8 @@ android {
         applicationId "top.fumiama.copymangaweb"
         minSdkVersion 23
         targetSdkVersion 36
-        versionCode 16
-        versionName '1.5.3'
+        versionCode 17
+        versionName '1.5.4'
         resConfigs "zh", "zh-rCN"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
@@ -19,6 +19,13 @@ android {
 
     signingConfigs {
         release {
+            def props = new Properties()
+            def propFile = file('signing.properties')
+            if (propFile.exists()) props.load(propFile.newDataInputStream())
+            storeFile props['STORE_FILE'] ? file(props['STORE_FILE']) : null
+            storePassword props['STORE_PASSWORD']
+            keyAlias props['KEY_ALIAS']
+            keyPassword props['KEY_PASSWORD']
             enableV1Signing true
             enableV2Signing true
             enableV3Signing true

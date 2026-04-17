@@ -125,19 +125,18 @@ class DlListActivity: Activity() {
             if (!exist) true
             else {
                 var re = true
-                val zip = ZipInputStream(f.inputStream().buffered())
-                var entry = zip.nextEntry
-                while (entry != null) {
-                    if (!entry.isDirectory){
-                        if(zip.read() == -1 && entry.size == 0L){
-                            re = false
-                            break
+                ZipInputStream(f.inputStream().buffered()).use { zip ->
+                    var entry = zip.nextEntry
+                    while (entry != null) {
+                        if (!entry.isDirectory) {
+                            if (zip.read() == -1 && entry.size == 0L) {
+                                re = false
+                                break
+                            }
                         }
+                        entry = zip.nextEntry
                     }
-                    entry = zip.nextEntry
                 }
-                zip.closeEntry()
-                zip.close()
                 re
             }
         } catch (e: Exception) {

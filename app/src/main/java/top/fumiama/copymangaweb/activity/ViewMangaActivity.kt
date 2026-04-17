@@ -15,8 +15,15 @@ import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.app.AlertDialog
+import android.text.InputType
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
+import android.widget.EditText
 import android.widget.SeekBar
 import android.widget.Toast
+import android.widget.ImageView
+import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.widget.ViewPager2
 import com.bumptech.glide.Glide
@@ -61,23 +68,28 @@ class ViewMangaActivity : ToolsBoxActivity() {
     private lateinit var p: PropertiesTools
     private var isInSeek = false
     private var currentItem = 0
+    private var webtoonPage = 1
     private var notUseVP = true
+    private val isWebtoon: Boolean get() = !notUseVP && p["readMode"] == "w"
+    private var isPageTurning = false
     var pageNum = 1
         get() {
             field = getPageNumber()
             return field
         }
         set(value) {
-            setPageNumber(value)
+            if (count == 0) return
+            val clamped = value.coerceIn(1, count)
+            if (!notUseVP && isPageTurning) return
+            setPageNumber(clamped)
             if (notUseVP) {
-                //currentItem += delta
                 try {
                     loadOneImg()
                 } catch (e: java.lang.Exception) {
                     e.printStackTrace()
                     toolsBox.toastError("页数${currentItem}不合法")
                 }
-            }// else vp.currentItem += delta
+            }
             field = getPageNumber()
         }
 
@@ -166,30 +178,42 @@ class ViewMangaActivity : ToolsBoxActivity() {
     }
 
     private fun getPageNumber(): Int {
+        if (isWebtoon) return webtoonPage
         return if (r2l && !notUseVP) count - mBinding.vp.currentItem
         else (if (notUseVP) currentItem else mBinding.vp.currentItem) + 1
     }
 
     private fun setPageNumber(num: Int) {
+        if (isWebtoon) {
+            webtoonPage = num
+            mBinding.vrv.post { mBinding.vrv.scrollToPosition(num - 1) }
+            return
+        }
         if (r2l && !notUseVP) mBinding.vp.apply { post { currentItem = count - num } }
         else if (notUseVP) currentItem = num - 1 else mBinding.vp.currentItem = num - 1
     }
 
     private fun getImgBitmap(position: Int): Bitmap? {
         if (position >= count || position < 0) return null
-        else {
-            val zip = ZipFile(mangaZip)
-            return BitmapFactory.decodeStream(zip.getInputStream(zip.getEntry("${position}.webp")))
+        return ZipFile(mangaZip).use { zip ->
+            BitmapFactory.decodeStream(zip.getInputStream(zip.getEntry("${position}.webp")))
         }
     }
 
     private fun loadOneImg() {
         if(dlZip2View) mBinding.vone.onei.apply { post { setImageBitmap(getImgBitmap(currentItem)) } }
-        else Glide.with(this@ViewMangaActivity)
-            .load(toolsBox.resolution.wrap(imgUrls[currentItem]))
-            .placeholder(R.drawable.ic_dl)
-            .dontAnimate()
-            .into(mBinding.vone.onei)
+        else {
+            Glide.with(this@ViewMangaActivity)
+                .load(toolsBox.resolution.wrap(imgUrls[currentItem]))
+                .placeholder(R.drawable.ic_dl)
+                .dontAnimate()
+                .into(mBinding.vone.onei)
+            for (idx in (currentItem + 1)..(currentItem + 10)) {
+                if (idx in 0 until count) {
+                    Glide.with(this@ViewMangaActivity).load(toolsBox.resolution.wrap(imgUrls[idx])).preload()
+                }
+            }
+        }
         updateSeekBar()
     }
 
@@ -203,19 +227,50 @@ class ViewMangaActivity : ToolsBoxActivity() {
         prepareVP()
         prepareInfoBar(count)
         if (notUseVP) loadOneImg() else prepareIdBtVH()
-        toolsBox.dp2px(67)?.let { setIdPosition(it) }
+        mBinding.infcard.root.post { setIdPosition(mBinding.infcard.root.height) }
         prepareIdBtVolTurn()
         prepareIdBtVP()
         prepareIdBtLR()
+        prepareChapterNavButtons()
+    }
+
+    private fun prepareChapterNavButtons() {
+        mBinding.infcard.idbtnPrevChapter.apply { post {
+            isEnabled = previousChapterUrl != null
+            alpha = if (previousChapterUrl != null) 1f else 0.4f
+            setOnClickListener {
+                previousChapterUrl?.let { url ->
+                    MainActivity.wm?.get()?.loadHiddenUrl(url)
+                    finish()
+                }
+            }
+        } }
+        mBinding.infcard.idbtnNextChapter.apply { post {
+            isEnabled = nextChapterUrl != null
+            alpha = if (nextChapterUrl != null) 1f else 0.4f
+            setOnClickListener {
+                nextChapterUrl?.let { url ->
+                    MainActivity.wm?.get()?.loadHiddenUrl(url)
+                    finish()
+                }
+            }
+        } }
     }
 
     private fun prepareIdBtLR() {
         mBinding.infcard.idtblr.apply { post {
             isChecked = r2l
             setOnClickListener {
-                if (mBinding.infcard.idtblr.isChecked) p["r2l"] = "true"
-                else p["r2l"] = "false"
-                Toast.makeText(this@ViewMangaActivity, "下次浏览生效", Toast.LENGTH_SHORT).show()
+                val currentPage = pageNum
+                r2l = mBinding.infcard.idtblr.isChecked
+                p["r2l"] = if (r2l) "true" else "false"
+                if (!notUseVP && !isWebtoon) {
+                    mBinding.vp.post {
+                        mBinding.vp.adapter = ViewData(mBinding.vp).RecyclerViewAdapter()
+                        mBinding.vp.offscreenPageLimit = 5
+                        setPageNumber(currentPage)
+                    }
+                }
             }
         } }
     }
@@ -235,19 +290,33 @@ class ViewMangaActivity : ToolsBoxActivity() {
         if (notUseVP) {
             mBinding.vp.apply { post { visibility = View.INVISIBLE } }
             mBinding.vone.root.apply { post { visibility = View.VISIBLE } }
+            mBinding.vrv.apply { post { visibility = View.INVISIBLE } }
+        } else if (isWebtoon) {
+            mBinding.vp.apply { post { visibility = View.INVISIBLE } }
+            mBinding.vone.root.apply { post { visibility = View.INVISIBLE } }
+            mBinding.vrv.apply { post {
+                visibility = View.VISIBLE
+                setupWebtoonRv()
+            } }
         } else {
             mBinding.vp.apply { post {
                 visibility = View.VISIBLE
                 adapter = ViewData(this).RecyclerViewAdapter()
+                offscreenPageLimit = 5
                 registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
+                    override fun onPageScrollStateChanged(state: Int) {
+                        isPageTurning = state != ViewPager2.SCROLL_STATE_IDLE
+                    }
                     override fun onPageSelected(position: Int) {
                         updateSeekBar()
                         super.onPageSelected(position)
                     }
                 })
+                if (p["readMode"] == "v") orientation = ViewPager2.ORIENTATION_VERTICAL
                 if (r2l) currentItem = count - 1
             } }
             mBinding.vone.root.apply { post { visibility = View.INVISIBLE } }
+            mBinding.vrv.apply { post { visibility = View.INVISIBLE } }
         }
     }
 
@@ -265,8 +334,14 @@ class ViewMangaActivity : ToolsBoxActivity() {
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(p0: SeekBar?, p1: Int, isHuman: Boolean) {
                     if (isHuman) {
-                        if (p1 >= (pageNum + 1) * 100 / size) scrollForward()
-                        else if (p1 < (pageNum - 1) * 100 / size) scrollBack()
+                        val target = (p1 * size / 100).coerceIn(1, size)
+                        if (target == pageNum) return
+                        if (notUseVP) {
+                            currentItem = target - 1
+                            updateSeekText()
+                        } else {
+                            setPageNumber(target)
+                        }
                     }
                 }
 
@@ -276,6 +351,7 @@ class ViewMangaActivity : ToolsBoxActivity() {
 
                 override fun onStopTrackingTouch(p0: SeekBar?) {
                     isInSeek = false
+                    if (notUseVP) loadOneImg()
                 }
             })
         } }
@@ -285,25 +361,99 @@ class ViewMangaActivity : ToolsBoxActivity() {
                 this@ViewMangaActivity.handler.sendEmptyMessage(3)
             }
         } }
-        mBinding.oneinfo.inftxtprogress.apply { post { text = "$pageNum/$size" } }
+        val showPageNum = p["showPageNum"] != "false"
+        mBinding.oneinfo.inftxtprogress.apply { post {
+            visibility = if (showPageNum) View.VISIBLE else View.GONE
+            text = "$pageNum/$size"
+            setOnClickListener { showPageInputDialog(size) }
+        } }
     }
 
     private fun prepareIdBtVH() {
         mBinding.infcard.idtbvh.apply { post {
-            isChecked = p["vertical"] == "true"
+            val cur = p["readMode"] ?: if (p["vertical"] == "true") "v" else "h"
+            when (cur) {
+                "v" -> { isChecked = true; text = "纵向" }
+                "w" -> { isChecked = true; text = "条漫" }
+                else -> { text = "横向"; isChecked = false }
+            }
             setOnClickListener {
-                if (mBinding.infcard.idtbvh.isChecked) {
-                    mBinding.vp.apply { post { orientation = ViewPager2.ORIENTATION_VERTICAL } }
-                    p["vertical"] = "true"
-                } else {
-                    mBinding.vp.apply { post { orientation = ViewPager2.ORIENTATION_HORIZONTAL } }
-                    p["vertical"] = "false"
+                val next = when (p["readMode"] ?: if (p["vertical"] == "true") "v" else "h") {
+                    "h" -> "v"; "v" -> "w"; else -> "h"
+                }
+                p["readMode"] = next
+                when (next) {
+                    "v" -> { isChecked = true; text = "纵向" }
+                    "w" -> { isChecked = true; text = "条漫" }
+                    else -> { text = "横向"; isChecked = false }
+                }
+                applyReadMode(next)
+            }
+        } }
+    }
+
+    private fun applyReadMode(mode: String) {
+        when (mode) {
+            "w" -> {
+                mBinding.vp.post { mBinding.vp.visibility = View.INVISIBLE }
+                mBinding.vone.root.post { mBinding.vone.root.visibility = View.INVISIBLE }
+                mBinding.vrv.post {
+                    mBinding.vrv.visibility = View.VISIBLE
+                    if (mBinding.vrv.adapter == null) setupWebtoonRv()
                 }
             }
-            if (isChecked) mBinding.vp.apply { post {
-                orientation = ViewPager2.ORIENTATION_VERTICAL
-            } }
-        } }
+            "v" -> {
+                mBinding.vrv.post { mBinding.vrv.visibility = View.INVISIBLE }
+                mBinding.vone.root.post { mBinding.vone.root.visibility = View.INVISIBLE }
+                mBinding.vp.post {
+                    mBinding.vp.visibility = View.VISIBLE
+                    mBinding.vp.orientation = ViewPager2.ORIENTATION_VERTICAL
+                    if (mBinding.vp.adapter == null) setupVPAdapter()
+                }
+            }
+            else -> {
+                mBinding.vrv.post { mBinding.vrv.visibility = View.INVISIBLE }
+                mBinding.vone.root.post { mBinding.vone.root.visibility = View.INVISIBLE }
+                mBinding.vp.post {
+                    mBinding.vp.visibility = View.VISIBLE
+                    mBinding.vp.orientation = ViewPager2.ORIENTATION_HORIZONTAL
+                    if (mBinding.vp.adapter == null) setupVPAdapter()
+                }
+            }
+        }
+    }
+
+    private fun setupVPAdapter() {
+        mBinding.vp.apply {
+            adapter = ViewData(this).RecyclerViewAdapter()
+            offscreenPageLimit = 5
+            registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
+                override fun onPageScrollStateChanged(state: Int) {
+                    isPageTurning = state != ViewPager2.SCROLL_STATE_IDLE
+                }
+                override fun onPageSelected(position: Int) {
+                    updateSeekBar()
+                    super.onPageSelected(position)
+                }
+            })
+            if (r2l) currentItem = count - 1
+        }
+    }
+
+    private fun setupWebtoonRv() {
+        mBinding.vrv.layoutManager = LinearLayoutManager(this)
+        mBinding.vrv.adapter = WebtoonAdapter()
+        mBinding.vrv.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrollStateChanged(rv: RecyclerView, newState: Int) {
+                if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                    val pos = (rv.layoutManager as? LinearLayoutManager)
+                        ?.findFirstVisibleItemPosition() ?: return
+                    webtoonPage = (pos + 1).coerceIn(1, count)
+                    updateSeekText()
+                    updateSeekProgress()
+                }
+            }
+        })
     }
 
     private fun prepareIdBtVolTurn() {
@@ -334,11 +484,13 @@ class ViewMangaActivity : ToolsBoxActivity() {
     }
 
     fun scrollBack() {
-        pageNum--
+        if (isWebtoon) mBinding.vrv.post { mBinding.vrv.smoothScrollBy(0, -(mBinding.vrv.height * 4 / 5)) }
+        else pageNum--
     }
 
     fun scrollForward() {
-        pageNum++
+        if (isWebtoon) mBinding.vrv.post { mBinding.vrv.smoothScrollBy(0, mBinding.vrv.height * 4 / 5) }
+        else pageNum++
     }
 
     @SuppressLint("SetTextI18n")
@@ -393,6 +545,33 @@ class ViewMangaActivity : ToolsBoxActivity() {
         }
     }
 
+    inner class WebtoonAdapter : RecyclerView.Adapter<WebtoonAdapter.VH>() {
+        inner class VH(val iv: ImageView) : RecyclerView.ViewHolder(iv)
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
+            val iv = LayoutInflater.from(parent.context)
+                .inflate(R.layout.page_webtoon_imgview, parent, false) as ImageView
+            iv.setOnClickListener {
+                val pm = top.fumiama.copymangaweb.tool.PagesManager(WeakReference(this@ViewMangaActivity))
+                pm.manageInfo()
+            }
+            return VH(iv)
+        }
+
+        override fun onBindViewHolder(holder: VH, position: Int) {
+            if (dlZip2View) {
+                getImgBitmap(position)?.let { holder.iv.setImageBitmap(it) }
+            } else {
+                Glide.with(this@ViewMangaActivity)
+                    .load(toolsBox.resolution.wrap(imgUrls[position]))
+                    .placeholder(R.drawable.ic_dl)
+                    .into(holder.iv)
+            }
+        }
+
+        override fun getItemCount() = count
+    }
+
     fun showSettings() {
         mBinding.oneinfo.infseek.visibility = View.VISIBLE
         mBinding.oneinfo.inftitle.isearch.visibility = View.VISIBLE
@@ -404,6 +583,44 @@ class ViewMangaActivity : ToolsBoxActivity() {
             1F
         ).setDuration(233).start()
         clicked = true
+        handler.sendEmptyMessage(2)
+    }
+
+    @SuppressLint("SetTextI18n")
+    private fun showPageInputDialog(size: Int) {
+        val et = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setText(pageNum.toString())
+            selectAll()
+            hint = "1 - $size"
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("跳转到页码")
+            .setView(et)
+            .setPositiveButton("跳转") { _, _ -> jumpToPage(et, size) }
+            .setNegativeButton("取消", null)
+            .create()
+        et.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_DONE) {
+                jumpToPage(et, size)
+                dialog.dismiss()
+                true
+            } else false
+        }
+        dialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
+        dialog.show()
+    }
+
+    private fun jumpToPage(et: EditText, size: Int) {
+        val target = et.text.toString().toIntOrNull()?.coerceIn(1, size) ?: return
+        if (notUseVP) {
+            currentItem = target - 1
+            loadOneImg()
+        } else {
+            setPageNumber(target)
+        }
+        (getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager)
+            ?.hideSoftInputFromWindow(et.windowToken, 0)
     }
 
     fun hideSettings() {
@@ -426,11 +643,8 @@ class ViewMangaActivity : ToolsBoxActivity() {
         private val toolsBox: ToolsBox
     ) : Handler(Looper.myLooper()!!) {
         private var infoShown = false
-        private var delta = -1f
-            get() {
-                if (field < 0) field = va?.get()?.infoDrawerDelta ?: 0f
-                return field
-            }
+        private val delta: Float
+            get() = va?.get()?.infoDrawerDelta ?: 0f
 
         @SuppressLint("SimpleDateFormat", "SetTextI18n")
         override fun handleMessage(msg: Message) {
