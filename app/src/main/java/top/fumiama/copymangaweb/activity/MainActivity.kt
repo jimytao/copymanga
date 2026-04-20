@@ -13,6 +13,7 @@ import android.view.WindowInsets
 import android.view.WindowManager
 import android.webkit.ValueCallback
 import android.webkit.WebView
+import androidx.activity.OnBackPressedCallback
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
@@ -99,6 +100,17 @@ class MainActivity: ToolsBoxActivity() {
             override fun onDoubleTap(e: MotionEvent): Boolean { toggleStatusBar(); return true }
         })
         mBinding.w.setOnTouchListener { _, event -> gestureDetector.onTouchEvent(event); false }
+
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (mBinding.w.canGoBack()) {
+                    mBinding.w.goBack()
+                } else {
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                }
+            }
+        })
     }
 
     private fun toggleStatusBar() {
@@ -132,12 +144,6 @@ class MainActivity: ToolsBoxActivity() {
     }
 
     fun openSettings() { startActivity(Intent(this, SettingsActivity::class.java)) }
-
-    @Deprecated("Deprecated in Java")
-    override fun onBackPressed() {
-        if(mBinding.w.canGoBack()) mBinding.w.goBack()
-        else super.onBackPressed()
-    }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
