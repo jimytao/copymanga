@@ -16,6 +16,7 @@ import android.webkit.WebView
 import androidx.activity.OnBackPressedCallback
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
@@ -52,18 +53,19 @@ class MainActivity: ToolsBoxActivity() {
         mBinding = ActivityMainBinding.inflate(layoutInflater)
         mBinding.mainViewModel = mViewModel
         mBinding.lifecycleOwner = this
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(mBinding.root)
 
         ViewCompat.setOnApplyWindowInsetsListener(mBinding.root) { v, insets ->
             val statusBar = insets.getInsets(WindowInsetsCompat.Type.statusBars())
             val cutout    = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
-            val navBar    = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
-            val gesture   = hasGestureBar()
+            // tappableElement 仅在有实体导航按钮时非零；手势条隐藏/手势导航时为 0
+            val tappable  = insets.getInsets(WindowInsetsCompat.Type.tappableElement())
 
             val topPad    = if (isStatusBarHidden) 0 else maxOf(statusBar.top, cutout.top)
-            val bottomPad = if (gesture) navBar.bottom else 0
-            val leftPad   = maxOf(cutout.left,  if (gesture) navBar.left  else 0)
-            val rightPad  = maxOf(cutout.right, if (gesture) navBar.right else 0)
+            val bottomPad = tappable.bottom
+            val leftPad   = maxOf(cutout.left,  tappable.left)
+            val rightPad  = maxOf(cutout.right, tappable.right)
 
             v.setPadding(leftPad, topPad, rightPad, bottomPad)
             insets
@@ -107,10 +109,9 @@ class MainActivity: ToolsBoxActivity() {
         SetDraggable().with(this).onto(mBinding.fab)
 
         val prefs = getSharedPreferences("app_settings", MODE_PRIVATE)
-        if (prefs.getBoolean("dark_mode", false)) {
-            window.statusBarColor = android.graphics.Color.BLACK
-            mBinding.root.setBackgroundColor(android.graphics.Color.BLACK)
-        }
+        val darkMode = prefs.getBoolean("dark_mode", false)
+        mBinding.root.setBackgroundColor(if (darkMode) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
+        if (darkMode) window.statusBarColor = android.graphics.Color.BLACK
         if (prefs.getBoolean("hide_status_bar", false)) { isStatusBarHidden = true; toggleStatusBar() }
 
         gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
@@ -141,12 +142,6 @@ class MainActivity: ToolsBoxActivity() {
             else window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
         }
         ViewCompat.requestApplyInsets(mBinding.root)
-    }
-
-    private fun hasGestureBar(): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false
-        val id = resources.getIdentifier("config_navBarInteractionMode", "integer", "android")
-        return id > 0 && resources.getInteger(id) == 2
     }
 
     fun setStatusBarHidden(hidden: Boolean) { if (hidden != isStatusBarHidden) toggleStatusBar() }
