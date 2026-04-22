@@ -73,6 +73,16 @@ class MainActivity: ToolsBoxActivity() {
 
         wm = WeakReference(this)
         mh = MainHandler(Looper.myLooper()!!)
+
+        val prefs = getSharedPreferences("app_settings", MODE_PRIVATE)
+        val darkMode = prefs.getBoolean("dark_mode", false)
+        val bgColor = if (darkMode) android.graphics.Color.BLACK else android.graphics.Color.WHITE
+        mBinding.root.setBackgroundColor(bgColor)
+        mBinding.w.setBackgroundColor(bgColor)
+        mBinding.wh.setBackgroundColor(bgColor)
+        if (darkMode) window.statusBarColor = android.graphics.Color.BLACK
+        if (prefs.getBoolean("hide_status_bar", false)) { isStatusBarHidden = true; toggleStatusBar() }
+
         toolsBox.netInfo.let {
             if(it == "无网络" || it == "错误") {
                 setFab2DlList()
@@ -107,12 +117,6 @@ class MainActivity: ToolsBoxActivity() {
             }
         }
         SetDraggable().with(this).onto(mBinding.fab)
-
-        val prefs = getSharedPreferences("app_settings", MODE_PRIVATE)
-        val darkMode = prefs.getBoolean("dark_mode", false)
-        mBinding.root.setBackgroundColor(if (darkMode) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
-        if (darkMode) window.statusBarColor = android.graphics.Color.BLACK
-        if (prefs.getBoolean("hide_status_bar", false)) { isStatusBarHidden = true; toggleStatusBar() }
 
         gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onDoubleTap(e: MotionEvent): Boolean { toggleStatusBar(); return true }
@@ -158,8 +162,11 @@ class MainActivity: ToolsBoxActivity() {
         else
             "javascript:(function(){var e=document.getElementById('_dk');if(e)e.remove();})();"
         mBinding.w.post { mBinding.w.loadUrl(js) }
+        val bgColor = if (enabled) android.graphics.Color.BLACK else android.graphics.Color.WHITE
         window.statusBarColor = if (enabled) android.graphics.Color.BLACK else android.graphics.Color.TRANSPARENT
-        mBinding.root.setBackgroundColor(if (enabled) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
+        mBinding.root.setBackgroundColor(bgColor)
+        mBinding.w.setBackgroundColor(bgColor)
+        mBinding.wh.setBackgroundColor(bgColor)
     }
 
     fun openSettings() { startActivity(Intent(this, SettingsActivity::class.java)) }
@@ -202,7 +209,9 @@ class MainActivity: ToolsBoxActivity() {
     }
 
     fun loadHiddenUrl(u: String) {
-        mBinding.wh.apply { post { loadUrl(u) } }
+        mBinding.wh.apply { post {
+            loadUrl(u)
+        } }
     }
 
     fun updateLoadProgress(p: Int) {

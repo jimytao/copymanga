@@ -2,7 +2,6 @@ package top.fumiama.copymangaweb.web
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.util.Log
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -19,9 +18,14 @@ import top.fumiama.copymangaweb.tool.UrlManager
 
 class WebViewClient(private val context: Context, jsFileName: String):WebViewClient() {
     private val js = context.assets.open(jsFileName).readBytes().decodeToString()
+        .removePrefix("javascript:")
+    private val darkModeJs = "(function(){var e=document.getElementById('_dk');if(!e){e=document.createElement('style');e.id='_dk';document.head.appendChild(e);}e.textContent='html{filter:invert(1) hue-rotate(180deg)!important}img,video{filter:invert(1) hue-rotate(180deg)!important}'})();"
+
+    private fun isDarkMode() = context.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
+        .getBoolean("dark_mode", false)
+
     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
         super.onPageStarted(view, url, favicon)
-        Log.d("MyWC", "Load URL: $url")
         url?.let {
             // 允许所有已知候选域名及其无 www 变体，防止站点跨域跳转被误拦截
             val allowed = UrlManager.allowedPrefixes.any { prefix -> it.startsWith(prefix) }
@@ -33,17 +37,19 @@ class WebViewClient(private val context: Context, jsFileName: String):WebViewCli
         }
     }
 
+    override fun onPageCommitVisible(view: WebView?, url: String?) {
+        super.onPageCommitVisible(view, url)
+        if (isDarkMode()) {
+            view?.evaluateJavascript(darkModeJs, null)
+        }
+    }
+
     override fun onPageFinished(view: WebView?, url: String?) {
         wm?.get()?.lifecycleScope?.launch {
             withContext(Dispatchers.IO) {
                 delay(500)
                 withContext(Dispatchers.Main) {
-                    view?.loadUrl(js)
-                    if (context.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
-                            .getBoolean("dark_mode", false)) {
-                        view?.loadUrl("javascript:(function(){var e=document.getElementById('_dk');if(!e){e=document.createElement('style');e.id='_dk';document.head.appendChild(e);}e.textContent='html{filter:invert(1) hue-rotate(180deg)!important}img,video{filter:invert(1) hue-rotate(180deg)!important}'})();")
-                    }
-                    Log.d("MyWC", "Inject JS into: $url")
+                    view?.evaluateJavascript(js, null)
                     super.onPageFinished(view, url)
                 }
             }

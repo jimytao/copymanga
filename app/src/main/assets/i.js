@@ -26,11 +26,14 @@ if (typeof (loaded) == "undefined") {
         },
         clickClass: function (name, index) { document.getElementsByClassName(name)[index].click(); },
         clickClassCenter: function (name, index) {
-            var ev = document.createEvent('HTMLEvents');
-            ev.clientX = innerWidth / 2;
-            ev.clientY = innerHeight / 2;
-            ev.initEvent('click', false, true);
-            document.getElementsByClassName(name)[index].dispatchEvent(ev);
+            var elems = document.getElementsByClassName(name);
+            if(elems.length > index) {
+                var ev = document.createEvent('HTMLEvents');
+                ev.clientX = innerWidth / 2;
+                ev.clientY = innerHeight / 2;
+                ev.initEvent('click', false, true);
+                elems[index].dispatchEvent(ev);
+            }
         },
         resetPreUrl: function () { this.preUrl = ""; },
         loadChapter: function () { this.clickClassCenter("comicContentPopupImageItem", 0); GM.loadComic(location.href); },
@@ -57,8 +60,12 @@ if (typeof (loaded) == "undefined") {
         if (url.endsWith("/index")) {
             invoke.pinTitle();
         }
-        else if (url.indexOf("/comicContent/") > 0) setTimeout(function () { invoke.loadChapter() }, 1000);
-        else if (url.indexOf("/details/comic/") > 0) GM.loadComic(url);
+        else if (url.indexOf("/comicContent/") > 0) {
+            setTimeout(function () { invoke.loadChapter() }, 1000);
+        }
+        else if (url.indexOf("/details/comic/") > 0) {
+            GM.loadComic(url);
+        }
         else if (url.indexOf("/personal") > 0) {
             GM.enterProfile();
             setTimeout(function () { invoke.injectAppSettings(); }, 1200);

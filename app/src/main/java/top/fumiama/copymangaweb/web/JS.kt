@@ -1,6 +1,5 @@
 package top.fumiama.copymangaweb.web
 
-import android.util.Log
 import android.webkit.JavascriptInterface
 import top.fumiama.copymangaweb.activity.MainActivity.Companion.wm
 import top.fumiama.copymangaweb.tool.UrlManager
@@ -14,7 +13,6 @@ class JS {
             url.contains("/comicContent/") -> "$base/${url.substringAfter("comicContent/").substringBefore("/")}/chapter/${url.substringAfterLast("/")}"
             else -> ""
         }
-        Log.d("MyJS", "Load comic: $u")
         wm?.get()?.loadHiddenUrl(u)
     }
     @JavascriptInterface

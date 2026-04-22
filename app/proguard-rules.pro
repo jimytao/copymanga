@@ -58,14 +58,14 @@
   @com.google.gson.annotations.SerializedName <fields>;
 }
 
-##---------------End: proguard configuration for Gson  ----------
+##---------------End: proguard configuration for Gson ----------
 
--assumenosideeffects class android.util.Log {
-    public static *** d(...);
-    public static *** e(...);
-    public static *** i(...);
-    public static *** v(...);
-    public static *** println(...);
-    public static *** w(...);
-    public static *** wtf(...);
-}
+#-assumenosideeffects class android.util.Log {
+#    public static *** d(...);
+#    public static *** e(...);
+#    public static *** i(...);
+#    public static *** v(...);
+#    public static *** println(...);
+#    public static *** w(...);
+#    public static *** wtf(...);
+#}
