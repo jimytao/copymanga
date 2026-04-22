@@ -4,6 +4,7 @@
 - **原生强制暗黑 (Force Dark)**：引入 `androidx.webkit` 库，启用 WebView 原生 `FORCE_DARK` 支持，并采用 `USER_AGENT_DARKENING_ONLY` 激进策略，使浏览器内核在网页渲染初期即自动转为深色。
 - **加载中白闪修正 (Logo页适配)**：在 `WebChromeClient.onProgressChanged` 中实现毫秒级探测，加载进度达 2% 时即提前注入暗色滤镜 CSS，解决了网站自带 Loading 界面（带 Logo 的白色页）无法被后期注入覆盖的问题。
 - **UI 状态栏适配**：使用 `WindowInsetsControllerCompat` 动态切换状态栏图标颜色，确保在深色背景下状态栏图标清晰可见（白色）。
+- **镜像测速与秒开优化**：`UrlManager` 引入并发测速机制，自动选取最低延迟节点；配合 `MainActivity` 的后台异步更新策略，实现应用“秒开”而不必等待网络探测。
 - **漫画 URL 提取策略重构**：在 `h.js` 中彻底废弃依赖 DOM 滚动位置的旧逻辑，改为基于图片元素属性计数的全新模式，大幅提升了长章节后台预加载的稳定性和速度。
 - **健壮性提升**：优化 CSS 注入脚本，支持在 `document.head` 尚未生成时自动挂载至 `documentElement`，确保暗色滤镜应用无死角。
 
