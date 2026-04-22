@@ -15,6 +15,8 @@ import android.webkit.ValueCallback
 import android.webkit.WebView
 import androidx.activity.OnBackPressedCallback
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -51,6 +53,21 @@ class MainActivity: ToolsBoxActivity() {
         mBinding.mainViewModel = mViewModel
         mBinding.lifecycleOwner = this
         setContentView(mBinding.root)
+
+        ViewCompat.setOnApplyWindowInsetsListener(mBinding.root) { v, insets ->
+            val statusBar = insets.getInsets(WindowInsetsCompat.Type.statusBars())
+            val cutout    = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
+            val navBar    = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
+            val gesture   = hasGestureBar()
+
+            val topPad    = if (isStatusBarHidden) 0 else maxOf(statusBar.top, cutout.top)
+            val bottomPad = if (gesture) navBar.bottom else 0
+            val leftPad   = maxOf(cutout.left,  if (gesture) navBar.left  else 0)
+            val rightPad  = maxOf(cutout.right, if (gesture) navBar.right else 0)
+
+            v.setPadding(leftPad, topPad, rightPad, bottomPad)
+            insets
+        }
 
         wm = WeakReference(this)
         mh = MainHandler(Looper.myLooper()!!)
@@ -123,6 +140,13 @@ class MainActivity: ToolsBoxActivity() {
             if (isStatusBarHidden) window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
             else window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
         }
+        ViewCompat.requestApplyInsets(mBinding.root)
+    }
+
+    private fun hasGestureBar(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false
+        val id = resources.getIdentifier("config_navBarInteractionMode", "integer", "android")
+        return id > 0 && resources.getInteger(id) == 2
     }
 
     fun setStatusBarHidden(hidden: Boolean) { if (hidden != isStatusBarHidden) toggleStatusBar() }
