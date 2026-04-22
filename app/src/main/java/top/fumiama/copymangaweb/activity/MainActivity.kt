@@ -14,6 +14,7 @@ import android.view.WindowManager
 import android.webkit.ValueCallback
 import android.webkit.WebView
 import androidx.activity.OnBackPressedCallback
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
@@ -48,6 +49,9 @@ class MainActivity: ToolsBoxActivity() {
 
     @SuppressLint("JavascriptInterface")
     override fun onCreate(savedInstanceState: Bundle?) {
+        val prefs = getSharedPreferences("app_settings", MODE_PRIVATE)
+        val darkMode = prefs.getBoolean("dark_mode", false)
+        if (darkMode) setTheme(R.style.Theme_App_Starting_Dark)
         installSplashScreen()
         super.onCreate(savedInstanceState)
         mBinding = ActivityMainBinding.inflate(layoutInflater)
@@ -74,13 +78,13 @@ class MainActivity: ToolsBoxActivity() {
         wm = WeakReference(this)
         mh = MainHandler(Looper.myLooper()!!)
 
-        val prefs = getSharedPreferences("app_settings", MODE_PRIVATE)
-        val darkMode = prefs.getBoolean("dark_mode", false)
-        val bgColor = if (darkMode) android.graphics.Color.BLACK else android.graphics.Color.WHITE
-        mBinding.root.setBackgroundColor(bgColor)
-        mBinding.w.setBackgroundColor(bgColor)
-        mBinding.wh.setBackgroundColor(bgColor)
-        if (darkMode) window.statusBarColor = android.graphics.Color.BLACK
+        mBinding.root.setBackgroundColor(if (darkMode) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
+        mBinding.w.applyDarkMode(darkMode)
+        mBinding.wh.applyDarkMode(darkMode)
+        if (darkMode) {
+            window.statusBarColor = android.graphics.Color.BLACK
+            WindowInsetsControllerCompat(window, mBinding.root).isAppearanceLightStatusBars = false
+        }
         if (prefs.getBoolean("hide_status_bar", false)) { isStatusBarHidden = true; toggleStatusBar() }
 
         toolsBox.netInfo.let {
@@ -162,11 +166,12 @@ class MainActivity: ToolsBoxActivity() {
         else
             "javascript:(function(){var e=document.getElementById('_dk');if(e)e.remove();})();"
         mBinding.w.post { mBinding.w.loadUrl(js) }
+        mBinding.w.applyDarkMode(enabled)
+        mBinding.wh.applyDarkMode(enabled)
         val bgColor = if (enabled) android.graphics.Color.BLACK else android.graphics.Color.WHITE
-        window.statusBarColor = if (enabled) android.graphics.Color.BLACK else android.graphics.Color.TRANSPARENT
         mBinding.root.setBackgroundColor(bgColor)
-        mBinding.w.setBackgroundColor(bgColor)
-        mBinding.wh.setBackgroundColor(bgColor)
+        window.statusBarColor = if (enabled) android.graphics.Color.BLACK else android.graphics.Color.TRANSPARENT
+        WindowInsetsControllerCompat(window, mBinding.root).isAppearanceLightStatusBars = !enabled
     }
 
     fun openSettings() { startActivity(Intent(this, SettingsActivity::class.java)) }

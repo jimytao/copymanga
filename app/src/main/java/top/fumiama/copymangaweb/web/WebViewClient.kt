@@ -19,7 +19,7 @@ import top.fumiama.copymangaweb.tool.UrlManager
 class WebViewClient(private val context: Context, jsFileName: String):WebViewClient() {
     private val js = context.assets.open(jsFileName).readBytes().decodeToString()
         .removePrefix("javascript:")
-    private val darkModeJs = "(function(){var e=document.getElementById('_dk');if(!e){e=document.createElement('style');e.id='_dk';document.head.appendChild(e);}e.textContent='html{filter:invert(1) hue-rotate(180deg)!important}img,video{filter:invert(1) hue-rotate(180deg)!important}'})();"
+    private val darkModeJs = "(function(){var e=document.getElementById('_dk');if(!e){e=document.createElement('style');e.id='_dk';(document.head||document.documentElement).appendChild(e);}e.textContent='html{filter:invert(1) hue-rotate(180deg)!important;background-color:#fff!important}img,video{filter:invert(1) hue-rotate(180deg)!important}'})();"
 
     private fun isDarkMode() = context.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
         .getBoolean("dark_mode", false)
