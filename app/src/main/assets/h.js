@@ -10,11 +10,12 @@ if (typeof (loaded) == "undefined") {
         return chapterArr;
     }
     function smoothLoadChapter() {
-        var sourceProfile = window.__CM_SOURCE_PROFILE || "normal";
-        var MIN_SPEED = sourceProfile === "conservative" ? 160 : 200;
-        var MAX_SPEED = sourceProfile === "conservative" ? 420 : 600;
+        var sourceProfile = window.__CM_SOURCE_PROFILE || "fast";
+        var fixedSpeed = sourceProfile === "normal" ? 320 : 0;
+        var MIN_SPEED = sourceProfile === "conservative" ? 160 : sourceProfile === "turbo" ? 300 : 200;
+        var MAX_SPEED = sourceProfile === "conservative" ? 420 : sourceProfile === "turbo" ? 800 : 600;
         var SPEED_ADJUST_INTERVAL = sourceProfile === "conservative" ? 420 : 300;
-        var currentSpeed = sourceProfile === "conservative" ? 260 : 350;
+        var currentSpeed = sourceProfile === "conservative" ? 260 : sourceProfile === "turbo" ? 500 : 350;
         var prevHeight = 0;
         var waitStartTime = 0;
         var prevUrlCount = 0;
@@ -92,7 +93,7 @@ if (typeof (loaded) == "undefined") {
                 if (elapsed >= 16) {
                     var comicCountEls = document.getElementsByClassName("comicCount");
                     var count = comicCountEls.length > 0 ? comicCountEls[0].innerText : "999";
-                    window.scrollBy(0, currentSpeed);
+                    window.scrollBy(0, fixedSpeed > 0 ? fixedSpeed : currentSpeed);
                     lastTime = timestamp;
                     var currentHeight = document.body.scrollHeight;
                     var atBottom = Math.round(window.innerHeight + window.scrollY + 0.5) >= currentHeight;
@@ -124,18 +125,18 @@ if (typeof (loaded) == "undefined") {
                     }
 
                     var isFullyLoaded = hasTotalCount && items.length > 0 && items.length >= totalCount && allDataSrcReady(contentEl);
-                    if (contentEl && speedAdjustCooldown <= 0) {
+                    if (fixedSpeed === 0 && contentEl && speedAdjustCooldown <= 0) {
                         var urlCount = countUrls(contentEl);
                         var urlDelta = urlCount - prevUrlCount;
                         if (urlDelta === 0 && hasTotalCount && items.length < totalCount) {
-                            currentSpeed = Math.max(MIN_SPEED, currentSpeed - (sourceProfile === "conservative" ? 35 : 50));
+                            currentSpeed = Math.max(MIN_SPEED, currentSpeed - (sourceProfile === "conservative" ? 35 : sourceProfile === "turbo" ? 60 : 50));
                         } else if (urlDelta >= 3) {
-                            currentSpeed = Math.min(MAX_SPEED, currentSpeed + (sourceProfile === "conservative" ? 20 : 30));
+                            currentSpeed = Math.min(MAX_SPEED, currentSpeed + (sourceProfile === "conservative" ? 20 : sourceProfile === "turbo" ? 40 : 30));
                         }
                         prevUrlCount = urlCount;
                         speedAdjustCooldown = SPEED_ADJUST_INTERVAL;
                     }
-                    speedAdjustCooldown--;
+                    if (fixedSpeed === 0) speedAdjustCooldown--;
 
                     if (atBottom && currentHeight !== prevHeight) {
                         prevHeight = currentHeight;
@@ -146,10 +147,11 @@ if (typeof (loaded) == "undefined") {
                         else bottomStuckRounds = 0;
                         var pullbackRound = sourceProfile === "conservative" ? 3 : 2;
                         var pushforwardRound = sourceProfile === "conservative" ? 4 : 3;
+                        var activeSpeed = fixedSpeed > 0 ? fixedSpeed : currentSpeed;
                         if (bottomStuckRounds === pullbackRound) {
-                            window.scrollBy(0, -Math.max(sourceProfile === "conservative" ? 180 : 240, Math.floor(currentSpeed * 0.8)));
+                            window.scrollBy(0, -Math.max(sourceProfile === "conservative" ? 180 : 240, Math.floor(activeSpeed * 0.8)));
                         } else if (bottomStuckRounds >= pushforwardRound) {
-                            window.scrollBy(0, Math.max(sourceProfile === "conservative" ? 320 : 420, Math.floor(currentSpeed * 1.1)));
+                            window.scrollBy(0, Math.max(sourceProfile === "conservative" ? 320 : 420, Math.floor(activeSpeed * 1.1)));
                             bottomStuckRounds = 0;
                         }
                     } else {

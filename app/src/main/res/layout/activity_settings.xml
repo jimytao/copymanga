@@ -267,7 +267,7 @@
                         android:id="@+id/tv_profile_hint"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="normal 更快；conservative 更稳，适合慢源或卡顿时手动切换"
+                        android:text="四档可选：conservative 最稳 · normal 固定 320px · fast 自适应（推荐）· turbo 极速"
                         android:textSize="12sp"
                         android:textColor="#888888" />
                 </LinearLayout>

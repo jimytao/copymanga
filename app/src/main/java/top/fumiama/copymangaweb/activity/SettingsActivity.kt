@@ -145,11 +145,11 @@ class SettingsActivity : Activity() {
     }
 
     private fun buildProfileHint(): String {
-        val profile = UrlManager.getLoadingProfile(this)
-        return if (profile == "conservative") {
-            "当前挡位：conservative。滚动更保守、更稳，适合慢源或卡顿时手动切换"
-        } else {
-            "当前挡位：normal。滚动更积极，适合大多数速度正常的源"
+        return when (UrlManager.getLoadingProfile(this)) {
+            "conservative" -> "当前挡位：conservative（慢）。初始 260px，上限 420px，最稳，适合网速很差或频繁卡顿时"
+            "normal" -> "当前挡位：normal（标准）。固定 320px，稳定无波动，与旧版行为一致"
+            "turbo" -> "当前挡位：turbo（极速）。初始 500px，上限 800px，网速好时最快"
+            else -> "当前挡位：fast（快速）。初始 350px，上限 600px，自适应，适合大多数情况"
         }
     }
 
@@ -192,13 +192,16 @@ class SettingsActivity : Activity() {
 
     private fun showProfileChooser(tvProfileHint: TextView) {
         val profiles = arrayOf(
-            "normal：滚动更快，适合大多数情况",
-            "conservative：滚动更稳，适合慢源或卡顿时",
+            "conservative（慢）  初始 260px · 上限 420px · 最稳，适合网速很差时",
+            "normal（标准）  固定 320px · 稳定无波动，与旧版一致",
+            "fast（快速）  初始 350px · 上限 600px · 自适应，推荐默认",
+            "turbo（极速）  初始 500px · 上限 800px · 网速好时最快",
         )
+        val keys = arrayOf("conservative", "normal", "fast", "turbo")
         AlertDialog.Builder(this)
             .setTitle("选择加载挡位")
             .setItems(profiles) { _, which ->
-                val selected = if (which == 1) "conservative" else "normal"
+                val selected = keys[which]
                 UrlManager.setManualLoadingProfile(this, selected)
                 tvProfileHint.text = buildProfileHint()
                 Toast.makeText(this, "已切换到 $selected 挡位", Toast.LENGTH_SHORT).show()

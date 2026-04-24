@@ -233,7 +233,7 @@ object UrlManager {
         }
     }
 
-    private fun normalProfile(): String = "normal"
+    private fun normalProfile(): String = "fast"
 
     private fun buildSummary(bestUrl: String, metricsByUrl: Map<String, ProbeMetrics>): String {
         val header = if (metricsByUrl[bestUrl] != null)
