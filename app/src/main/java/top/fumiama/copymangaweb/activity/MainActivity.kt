@@ -61,15 +61,16 @@ class MainActivity: ToolsBoxActivity() {
         setContentView(mBinding.root)
 
         ViewCompat.setOnApplyWindowInsetsListener(mBinding.root) { v, insets ->
-            val statusBar = insets.getInsets(WindowInsetsCompat.Type.statusBars())
-            val cutout    = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
-            // tappableElement 仅在有实体导航按钮时非零；手势条隐藏/手势导航时为 0
-            val tappable  = insets.getInsets(WindowInsetsCompat.Type.tappableElement())
+            // systemBars() 在三键/手势/HyperOS/Carbon 上都会报告真实占位；
+            // tappableElement 在部分 ROM 会返回 0，导致手势条覆盖内容，故改为与 systemBars 取 max。
+            val sys      = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val cutout   = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
+            val tappable = insets.getInsets(WindowInsetsCompat.Type.tappableElement())
 
-            val topPad    = if (isStatusBarHidden) 0 else maxOf(statusBar.top, cutout.top)
-            val bottomPad = tappable.bottom
-            val leftPad   = maxOf(cutout.left,  tappable.left)
-            val rightPad  = maxOf(cutout.right, tappable.right)
+            val topPad    = if (isStatusBarHidden) 0 else maxOf(sys.top, cutout.top)
+            val bottomPad = maxOf(sys.bottom, tappable.bottom)
+            val leftPad   = maxOf(sys.left, cutout.left, tappable.left)
+            val rightPad  = maxOf(sys.right, cutout.right, tappable.right)
 
             v.setPadding(leftPad, topPad, rightPad, bottomPad)
             insets
@@ -217,6 +218,10 @@ class MainActivity: ToolsBoxActivity() {
         mBinding.wh.apply { post {
             loadUrl(u)
         } }
+    }
+
+    fun loadVisibleUrl(u: String) {
+        mBinding.w.post { mBinding.w.loadUrl(u) }
     }
 
     fun updateLoadProgress(p: Int) {

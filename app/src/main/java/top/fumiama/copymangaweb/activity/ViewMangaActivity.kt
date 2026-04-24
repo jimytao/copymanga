@@ -27,11 +27,13 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.widget.ViewPager2
 import com.bumptech.glide.Glide
+import com.bumptech.glide.request.target.Target
 import top.fumiama.copymangaweb.R
 import top.fumiama.copymangaweb.activity.MainActivity.Companion.wm
 import top.fumiama.copymangaweb.activity.template.ToolsBoxActivity
 import top.fumiama.copymangaweb.databinding.ActivityViewmangaBinding
 import top.fumiama.copymangaweb.handler.TimeThread
+import top.fumiama.copymangaweb.tool.PagesManager
 import top.fumiama.copymangaweb.tool.PropertiesTools
 import top.fumiama.copymangaweb.tool.ToolsBox
 import top.fumiama.copymangaweb.view.ScaleImageView
@@ -239,9 +241,8 @@ class ViewMangaActivity : ToolsBoxActivity() {
             isEnabled = previousChapterUrl != null
             alpha = if (previousChapterUrl != null) 1f else 0.4f
             setOnClickListener {
-                previousChapterUrl?.let { url ->
-                    MainActivity.wm?.get()?.loadHiddenUrl(url)
-                    finish()
+                previousChapterUrl?.let {
+                    PagesManager(WeakReference(this@ViewMangaActivity)).openAdjacentChapter(false)
                 }
             }
         } }
@@ -249,9 +250,8 @@ class ViewMangaActivity : ToolsBoxActivity() {
             isEnabled = nextChapterUrl != null
             alpha = if (nextChapterUrl != null) 1f else 0.4f
             setOnClickListener {
-                nextChapterUrl?.let { url ->
-                    MainActivity.wm?.get()?.loadHiddenUrl(url)
-                    finish()
+                nextChapterUrl?.let {
+                    PagesManager(WeakReference(this@ViewMangaActivity)).openAdjacentChapter(true)
                 }
             }
         } }
@@ -552,7 +552,7 @@ class ViewMangaActivity : ToolsBoxActivity() {
             val iv = LayoutInflater.from(parent.context)
                 .inflate(R.layout.page_webtoon_imgview, parent, false) as ImageView
             iv.setOnClickListener {
-                val pm = top.fumiama.copymangaweb.tool.PagesManager(WeakReference(this@ViewMangaActivity))
+                val pm = PagesManager(WeakReference(this@ViewMangaActivity))
                 pm.manageInfo()
             }
             return VH(iv)
@@ -565,6 +565,7 @@ class ViewMangaActivity : ToolsBoxActivity() {
                 Glide.with(this@ViewMangaActivity)
                     .load(toolsBox.resolution.wrap(imgUrls[position]))
                     .placeholder(R.drawable.ic_dl)
+                    .override(Target.SIZE_ORIGINAL)
                     .into(holder.iv)
             }
         }

@@ -2,8 +2,6 @@ package top.fumiama.copymangaweb.web
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.webkit.WebResourceRequest
-import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
@@ -49,18 +47,11 @@ class WebViewClient(private val context: Context, jsFileName: String):WebViewCli
             withContext(Dispatchers.IO) {
                 delay(500)
                 withContext(Dispatchers.Main) {
+                    view?.evaluateJavascript(UrlManager.buildInjectedConfigScript(context), null)
                     view?.evaluateJavascript(js, null)
                     super.onPageFinished(view, url)
                 }
             }
         }
-    }
-
-    override fun shouldInterceptRequest(
-        view: WebView?,
-        request: WebResourceRequest?
-    ): WebResourceResponse? {
-        request?.requestHeaders?.set("Access-Control-Allow-Origin", "*")
-        return super.shouldInterceptRequest(view, request)
     }
 }

@@ -13,6 +13,13 @@ class PagesManager(w: WeakReference<ViewMangaActivity>) {
     private var isEndR = false
     fun toPreviousPage(){ toPage(v?.r2l==true) }
     fun toNextPage(){ toPage(v?.r2l!=true) }
+    fun openAdjacentChapter(goNext: Boolean) {
+        wm?.get()?.mBinding?.w?.apply { post {
+            loadUrl("javascript:invoke.clickClass(\"comicControlBottomTopClick\",${if(goNext)1 else 0});")
+        } }
+        v?.tt?.canDo = false
+        v?.finish()
+    }
     private fun judgePrevious() = (v?.pageNum ?: 0) > 1
     private fun judgeNext() = (v?.pageNum ?: 0) < (v?.count ?: 0)
     private fun toPage(goNext:Boolean){
@@ -29,13 +36,7 @@ class PagesManager(w: WeakReference<ViewMangaActivity>) {
                 val chapterUrl = if(goNext) v?.nextChapterUrl else v?.previousChapterUrl
                 if (chapterUrl != null) {
                     if (if(goNext)isEndR else isEndL) {
-                        val pnHint = if(!goNext) -2 else -1
-                        wm?.get()?.mBinding?.w?.apply { post {
-                            loadUrl("javascript:invoke.clickClass(\"comicControlBottomTopClick\",${if(goNext)1 else 0});")
-                        } }
-                        v.tt.canDo = false
-                        // pn hint 通过下次 WebView 触发 callViewManga 时的 Intent 传递，无需静态字段
-                        v.finish()
+                        openAdjacentChapter(goNext)
                     } else doubleTapToast(goNext)
                 } else {
                     val newZipPosition = (v?.zipPosition ?: 0) + (if(goNext) 1 else -1)
