@@ -32,7 +32,6 @@ import top.fumiama.copymangaweb.databinding.ActivityMainBinding
 import top.fumiama.copymangaweb.handler.MainHandler
 import top.fumiama.copymangaweb.tool.MangaDlTools.Companion.wmdlt
 import top.fumiama.copymangaweb.tool.SetDraggable
-import top.fumiama.copymangaweb.tool.Updater
 import top.fumiama.copymangaweb.tool.UrlManager
 import top.fumiama.copymangaweb.web.JS
 import top.fumiama.copymangaweb.web.JSHidden
@@ -103,9 +102,7 @@ class MainActivity: ToolsBoxActivity() {
                     launch(Dispatchers.IO) { UrlManager.probe(this@MainActivity) }
                 }
 
-                launch(Dispatchers.IO) { goCheckUpdate(false) }
-
-                WebView.setWebContentsDebuggingEnabled(true)
+                WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
                 mBinding.w.apply { post {
                     setWebViewClient("i.js")
                     webChromeClient = WebChromeClient()
@@ -194,24 +191,13 @@ class MainActivity: ToolsBoxActivity() {
         ) return
         intent.clipData?.let { clipData ->
             var results = arrayOf<Uri>()
-            for (i in 0..clipData.itemCount) {
+            for (i in 0 until clipData.itemCount) {
                 val item = clipData.getItemAt(i)
                 results += item.uri
             }
-            if (intent.dataString != null) {
-                uploadMessageAboveL?.onReceiveValue(results)
-                uploadMessageAboveL = null
-            }
+            uploadMessageAboveL?.onReceiveValue(results)
+            uploadMessageAboveL = null
         }
-    }
-
-    private suspend fun goCheckUpdate(ignoreSkip: Boolean) {
-        Updater(
-            WeakReference(this),
-            toolsBox,
-            ignoreSkip,
-            getPreferences(MODE_PRIVATE).getInt("skipVersion", 0)
-        ).check(BuildConfig.VERSION_CODE)
     }
 
     fun loadHiddenUrl(u: String) {
@@ -273,6 +259,7 @@ class MainActivity: ToolsBoxActivity() {
     fun callViewManga(content: String) {
         lifecycleScope.launch { withContext(Dispatchers.IO) {
             val listChapter = content.split('\n')
+            if (listChapter.size < 3) return@withContext
             if(!saveUrlsOnly) {
                 val imgs = Array(maxOf(0, listChapter.size - 3)) { listChapter[it + 3] }
                 withContext(Dispatchers.Main) {
@@ -290,6 +277,11 @@ class MainActivity: ToolsBoxActivity() {
                 wmdlt?.get()?.setChapterImages(listChapter[0].substringAfterLast(' '), imgs)
             }
         } }
+    }
+
+    override fun onDestroy() {
+        mh?.clear()
+        super.onDestroy()
     }
 
     companion object {

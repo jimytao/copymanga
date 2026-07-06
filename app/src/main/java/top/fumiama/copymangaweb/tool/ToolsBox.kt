@@ -30,8 +30,8 @@ class ToolsBox(private val w: WeakReference<Activity>) {
         }
     val netInfo: String
         get() {
-            val cm: ConnectivityManager =
-                zis?.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val cm = zis?.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                ?: return ""
             return cm.getNetworkCapabilities(cm.activeNetwork)?.let {
                 when {
                     it.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> return@let "WIFI"

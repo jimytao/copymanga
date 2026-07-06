@@ -6,6 +6,7 @@ import java.io.File
 import java.lang.Thread.sleep
 import java.lang.ref.WeakReference
 import java.util.concurrent.Semaphore
+import java.util.concurrent.TimeUnit
 import java.util.zip.CRC32
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -23,8 +24,9 @@ class MangaDlTools(activity: DlActivity) {
         wmdlt = WeakReference(this)
     }
 
-    fun getImgsCountByHash(hash: String): Int?{
-        return imgUrlsList?.get(p[hash].toInt())?.size
+    fun getImgsCountByHash(hash: String): Int? {
+        val idx = p[hash].toIntOrNull() ?: return null
+        return imgUrlsList?.getOrNull(idx)?.size
     }
 
     fun allocateChapterUrls(count: Int){
@@ -33,20 +35,22 @@ class MangaDlTools(activity: DlActivity) {
     }
 
     fun dlChapterUrl(url: String){
-        sem.acquire()
+        if (!sem.tryAcquire(30, TimeUnit.SECONDS)) return
         da.get()?.apply {
             p[url.substringAfterLast("/")] = (chaptersCount++).toString()
             runOnUiThread { mBinding.dwh.apply { post { loadUrl(url) } } }
         }
     }
 
-    fun setChapterImages(hash: String, imgUrls: Array<String>){
-        imgUrlsList?.set(p[hash].toInt(), imgUrls)
+    fun setChapterImages(hash: String, imgUrls: Array<String>) {
+        val idx = p[hash].toIntOrNull()
+        if (idx != null) imgUrlsList?.takeIf { idx in it.indices }?.set(idx, imgUrls)
         sem.release()
     }
 
-    fun dlChapterAndPackIntoZip(zipf: File, hash: String){
-        imgUrlsList?.get(p[hash].toInt())?.let { images ->
+    fun dlChapterAndPackIntoZip(zipf: File, hash: String) {
+        val idx = p[hash].toIntOrNull() ?: return
+        imgUrlsList?.getOrNull(idx)?.let { images ->
             val dl = DownloadTools()
             zipf.parentFile?.let { if (!it.exists()) it.mkdirs() }
             if (zipf.exists()) zipf.delete()

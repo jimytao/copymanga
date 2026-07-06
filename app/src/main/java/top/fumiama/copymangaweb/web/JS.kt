@@ -13,7 +13,7 @@ class JS {
             url.contains("/comicContent/") -> "$base/${url.substringAfter("comicContent/").substringBefore("/")}/chapter/${url.substringAfterLast("/")}"
             else -> ""
         }
-        wm?.get()?.loadHiddenUrl(u)
+        if (u.isNotEmpty()) wm?.get()?.loadHiddenUrl(u)
     }
     @JavascriptInterface
     fun hideFab() {

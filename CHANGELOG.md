@@ -1,11 +1,115 @@
+## 2026-07-06 — v1.5.11：更新域名 + 多项鲁棒性强化
+
+### 域名更新
+- **替换失效域名**：移除已无法访问的 `copy20.com`，替换为官方公告的新大陆访问地址 `www.copy3000.com`（`mangacopy.com` 与 `2026copy.com` 保留，三源均已通过 ping 与内容验证）。
+
+### 崩溃修复
+- **`MangaDlTools.kt`**：`getImgsCountByHash`、`setChapterImages`、`dlChapterAndPackIntoZip` 三处 `p[hash].toInt()` 改为 `toIntOrNull()` + 安全跳过，防止 hash 文件损坏或章节映射丢失时抛出 `NumberFormatException` 崩溃。
+- **`MainActivity.kt`**：`callViewManga` 新增 `listChapter.size < 3` 前置检查，防止 JS 侧传来的内容行数不足时访问越界索引崩溃。
+- **`JS.kt`**：`loadComic` 两个 URL 分支均不匹配时不再向 WebView 传递空字符串，杜绝 `loadHiddenUrl("")` 触发未定义行为。
+
+### 逻辑与稳定性强化
+- **`MainHandler.kt`** + **`MainActivity.kt`**：新增 `MainHandler.clear()` 方法（dismiss + null 对话框），并在 `MainActivity.onDestroy` 中调用，防止 Activity 销毁后 loading dialog 引发 window leak。
+- **`SettingsActivity.kt`**：改继承 `AppCompatActivity`（原为裸 `Activity`），与其余 Activity 主题链保持一致；`getCacheSizeText` 加 try/catch，避免存储权限异常导致设置页崩溃。
+- **`ViewMangaActivity.kt`**：`onWindowFocusChanged` 在 API 30+ 改用 `WindowInsetsController`，弃用 `systemUiVisibility`；低版本保留原路径并加 `@Suppress`。
+- **`UrlManager.kt`**：`activeUrl` 加 `@Volatile`，保证 IO 线程写入对主线程立即可见，消除测速与主线程读取之间的可见性竞态。
+- **`DlActivity.kt`**：`comicName`、`json` 伴生字段加 `@Volatile`，消除下载流程中的跨线程竞态。
+
+## 2026-04-29 — 修复多处安全与稳定性 Bug
+
+- **关闭 Release 调试接口**：`MainActivity.kt` 将 `setWebContentsDebuggingEnabled(true)` 改为 `setWebContentsDebuggingEnabled(BuildConfig.DEBUG)`，release 包不再暴露 WebView 调试端口。
+- **文件选择越界与丢回调**：`MainActivity.kt` 将 `0..clipData.itemCount` 改为 `0 until clipData.itemCount` 防止最后一项越界；移除仅在 `dataString != null` 时才回调的错误条件，clipData 场景现在也能正确回传结果。
+- **阅读器进度除零保护**：`ViewMangaActivity.kt` 的 `updateSeekProgress()` 新增 `if (count == 0) return`，避免章节数据为空时崩溃。
+- **后台线程 startActivity**：`DlActivity.kt` 将子线程中的 `callVM()` 改为 `runOnUiThread { callVM(...) }`，保证 Activity 跳转在主线程执行。
+- **下载 Semaphore 超时**：`MangaDlTools.kt` 将 `sem.acquire()` 改为 `sem.tryAcquire(30, TimeUnit.SECONDS)`，回调丢失时最多等待 30 秒后放弃，不再永久阻塞。
+- **ConnectivityManager 安全转换**：`ToolsBox.kt` 将强制 `as ConnectivityManager` 改为 `as?` 并在 null 时提前返回空字符串，避免弱引用失效导致的类型转换异常。
+
+## 2026-04-26 — 修复阅读模式切换时阅读进度丢失问题
+
+- **问题描述**：在横向/竖向/条漫模式之间切换时，本章节的阅读进度会被重置，导致用户从例如第 5 页直接跳转回第 1 页。
+- **修复**：在 `ViewMangaActivity.kt` 的 `prepareIdBtVH` 中，在更改阅读模式之前记录当前的 `pageNum`。同时更新了 `applyReadMode` 方法的签名以接收 `currentPage` 参数，并在应用新模式界面后立即恢复并更新阅读进度，确保模式切换体验无缝衔接。
+
+## 2026-04-24 — 移除应用内自动更新与安装权限以通过 Play Protect 审查
+
+- **移除自动更新下载**：删除 `Updater.kt` 中的应用内下载与静默调起安装逻辑，此行为会被 Google Play Protect 判定为高风险特征。
+- **移除危险权限**：从 `AndroidManifest.xml` 中删除 `android.permission.REQUEST_INSTALL_PACKAGES` 权限申请。
+- **关联清理**：移除 `MainActivity.kt` 中对 `Updater` 的相关引用。
+
+## 2026-04-23 — 修复条漫模式图片模糊
+
+- **根本原因**：`WebtoonAdapter.onBindViewHolder` 调用 Glide 时未指定目标尺寸。`page_webtoon_imgview.xml` 的 `ImageView` 高度为 `wrap_content`，RecyclerView 在 `onBindViewHolder` 阶段 View 高度尚为 0，Glide 以该尺寸为目标执行下采样，导致解码出极低分辨率的 Bitmap，显示时被拉伸变模糊。横向/纵向模式使用 `ScaleImageView`（`match_parent × match_parent`），尺寸确定，Glide 采样正确，故始终清晰。
+- **修复 `ViewMangaActivity.kt`**：在 `WebtoonAdapter.onBindViewHolder` 的 Glide 调用链中加入 `.override(Target.SIZE_ORIGINAL)`，强制以图片原始分辨率解码，完全跳过基于 View 尺寸的下采样逻辑；同步添加 `import com.bumptech.glide.request.target.Target`。
+- **修复 `page_webtoon_imgview.xml`**：补充 `android:scaleType="fitCenter"`，与 `adjustViewBounds="true"` 行为对齐，确保 Glide 加载完成后图片正确缩放铺满宽度。
+
+## 2026-04-23 — 源站测速升级 & h.js 回退路线整理
+
+- **记录本轮收图问题的结论**：本轮调试先后尝试了“确认驱动逐张推进”“统一真实图片 URL 解析缓存”“PC DOM 总数推断增强”等方案，虽然理论上更严谨，但实测持续出现“进度条卡在 3-5 张、阅读器只收到极少图片”的回归。结合用户反馈与多轮实机验证，当前结论是：隐藏 PC WebView 的整体来源链路没有错，真正的问题在于后续重构偏离了旧版网站懒加载节奏，不能继续在确认驱动模型上堆补丁。
+- **正式回退 `h.js` 收图主模型到旧版连续滚动结构**：将 `smoothLoadChapter()` 恢复为接近 `v1.5.7` 的 `requestAnimationFrame + scrollBy + countUrls + allDataSrcReady` 主流程，删除 `resolvedUrls`、`getResolvedImageUrl`、`startConfirmDriven`、`parseTotalCount` 等本轮实验性逻辑，仅保留已验证必要的 `toMobileUrl()` 修复，确保阅读器底部上一章/下一章按钮继续沿用正确的移动端 URL 链路。
+- **最小化补充“到底脱困”机制**：在旧版滚动模型基础上新增底部补滚逻辑——当隐藏 PC WebView 已滚到底部但 `loadedCount < totalCount` 且连续多轮无增长时，先执行一次轻微上抬，再执行一次向下压回，目的是重新触发章节页的懒加载观察器。该补丁刻意不改变主收图模型，只解决旧版偶发“到底后卡住”的问题。
+- **记录换章按钮的最终可靠链路**：阅读器底部“上一章/下一章”按钮不再尝试 `loadVisibleUrl(url)` 直接跳转，而统一改为复用 `PagesManager.openAdjacentChapter(goNext)`，内部通过 `javascript:invoke.clickClass("comicControlBottomTopClick", index)` 触发站内 SPA 按钮点击，与双击换章完全共用同一入口，修复了此前跳回首页的问题。
+- **源站测速从“首页可达”升级为“阅读相关评分”**：`UrlManager.probe()` 旧版只对 `/favicon.ico` 发 `HEAD` 请求，无法反映章节页真实加载体验。现升级为同时探测首页静态资源与 `/comic` 漫画页响应时间，按加权分数选择当前 `activeUrl`，并把每个候选域名的首页耗时、漫画页耗时、最终加载档位汇总成摘要写入设置页，便于后续确认究竟是哪个源在拖慢隐藏 PC WebView 的懒加载节奏。
+- **引入按源加载档位**：根据测速结果与域名特征为当前源生成 `normal` / `conservative` 档位，并在 `WebViewClient` 注入页面脚本前写入 `window.__CM_SOURCE_PROFILE`。`h.js` 保持旧版滚动结构不变，只按档位微调 `MIN_SPEED`、`MAX_SPEED`、提速/降速幅度和底部补滚节奏，让慢源（尤其疑似更容易抖动的 `mangacopy` 类源）自动使用更保守的滚动参数。
+- **修正源评分与档位策略**：根据用户反馈，之前把 `mangacopy` 直接硬编码为 `conservative` 与真实体感不符，现已删除该偏置；档位只在漫画页探测明显偏慢时才降为 `conservative`。评分公式也从简单偏向首页可达性改为更重视漫画入口响应，避免 `copy20`/`mangacopy` 因首页静态资源快而掩盖章节页实际更慢的问题。
+- **新增手动选源能力**：设置页在“重新检测最快服务器”之外，新增“手动选择服务器”入口。列表中会展示每个候选源的名称、标注（例如 `2026copy` 标记为“中国大陆推荐”）、首页速度、漫画页延迟、综合评分与当前档位，方便用户结合自身地区与运营商手动选择最适合的线路。
+- **区分自动模式与手动模式，避免登录态被跨域打断**：自动测速结果仍会缓存，但应用启动时默认沿用当前缓存源，不会每次打开都自动强制切换域名，避免跨域导致登录状态/Cookie 丢失。手动选源使用独立的 override 状态保存，不覆盖自动测速缓存；恢复自动模式后可继续回到上次自动推荐的源。
+- **补充加载卡顿提示**：当隐藏 WebView 在章节加载过程中连续超过 1 秒无新增图片 URL 时，加载弹窗文本会追加“网络较慢，可到设置里重测/切换源”提示，引导用户优先通过源切换排查网络/线路问题，而不是误以为阅读器主逻辑再次损坏。
+- **地区标签彻底改为纯展示，不再参与自动优先级**：`2026copy` 的“中国大陆推荐”只保留为说明文案，不再赋予任何排序优势。自动选源现在明确要求对 `2026copy`、`copy20`、`mangacopy` 一视同仁，仅按真实测速与章节基准结果评分。
+- **引入章节级基准评分，优先“能否完整读完”而不是“首页是否更快”**：根据用户提供的两个真实章节（一个曾在 70+ 页附近卡住、一个长期稳定）为每个候选源做基准探测。新评分先看章节完整度，再看章节响应速度，最后才参考 `/comic` 与首页延迟，统一折算为 100 分制，避免再次出现“首页更快但章节更差”的错误排序。
+- **基准章节失败即降档，保证手动硬选也尽量可用**：任一候选源在基准章节中出现 FAIL、完整率明显不足或响应过慢时，会在本轮检测内被标记为 `conservative`，让 `h.js` 自动采用更保守的滚动/脱困节奏，降低手动选中慢源时的卡顿概率。
+- **降档改为“一次性”状态，不继承历史污染**：每次重新检测或查看源状态前，都会先把各源视为 `normal`，再根据本轮基准结果重新决定是否降档。这样不会发生“上次测坏了，这次恢复后仍被永久保守处理”的累积偏置，行为上等价于每轮检测前先清空档位状态。
+- **放弃自动章节评分与自动降档，回到更可控的主页延迟排序**：由于真实章节基准在多源环境下过于容易出现统一 FAIL，导致所有候选源一起被误伤，这版移除了章节级评分、100 分制、基准失败自动降档等复杂逻辑。服务器检测重新简化为仅测首页延迟，并按延迟从快到慢排序；自动模式直接选择排序第一的源。
+- **把挡位选择权完全交给用户**：`normal` / `conservative` 不再由检测逻辑自动决定，而是新增设置项让用户手动切换。说明文案也同步补充：`normal` 滚动更积极，适合大多数正常源；`conservative` 更保守、更稳，适合慢源或出现卡顿时手动切换。
+- **设置页文案与展示同步收敛**：手动选源列表不再展示评分、漫画页延迟或基准章节结果，只展示主页延迟与排序名次；网络设置说明更新为“检测仅按主页延迟排序，挡位由用户自己决定”，避免设置页继续暗示存在自动智能评分。
+
+## 2026-04-23 — h.js 收图与阅读器换章链路二次修正
+
+- **修复“进度条跑满但阅读器只有 4-5 张图”**：首次确认驱动重构仍沿用了 `img.dataset.src` 单一字段假设，导致隐藏 WebView 虽然完成了滚动，但 `finish()` 阶段重新扫 DOM 时只能拿到极少数真正落在 `dataset.src` 上的图片 URL，Kotlin 侧收到的数组天然只有 4-5 项。现在在 `h.js` 中新增统一的真实图片地址解析函数，按 `currentSrc` → `src` → `dataset.src` → `dataset.original` → `data-src` / `data-original` / `src attribute` 的顺序解析，并过滤 `data:`、`blob:`、空串等无效值。
+- **统一“推进条件”和“最终输出条件”**：新增 `resolvedUrls[]` 缓存，`startConfirmDriven()` 在推进过程中持续全量补扫 DOM，将每张图已解析到的真实 URL 直接写入缓存；进度条显示也改为统计 `resolvedUrls` 中的有效数量。`finish()` 不再临时重新读 `img.dataset.src`，而是直接输出缓存结果，避免“滚动阶段看到加载好了，finish 阶段却重新读丢”的竞态。
+- **补扫与收敛策略**：新增 `scanResolvedUrls()` 和 `countResolvedUrls()`，每轮 tick 与 finish 前都统一补扫一次全部图片节点，确保那些稍晚才把真实地址写入 `src/currentSrc` 的图片不会因为时序问题漏收。
+- **修复阅读器底部“上一章/下一章”仍跳回首页**：进一步调研确认，真正可靠的换章链路从来不是 `loadVisibleUrl(url)` 直接让可见 WebView 跳 URL，而是 `PagesManager` 里已经稳定工作的 `javascript:invoke.clickClass("comicControlBottomTopClick", index)` 站内点击机制。之前的底部按钮与双击换章虽然目标一致，但实现不同，仍然属于两套链路。
+- **链路统一**：在 `PagesManager` 中抽出 `openAdjacentChapter(goNext)` 公共方法，内部直接复用站内按钮点击脚本并关闭当前阅读器；`ViewMangaActivity.prepareChapterNavButtons()` 改为调用该方法，底部按钮与双击换章现在真正共用同一入口，不再自己执行 `loadVisibleUrl()`。
+
+## 2026-04-23 — 系统栏/手势条适配修正 & 下一章/上一章按钮修复
+
+- **Insets 适配重写** (`MainActivity.onCreate`)：将底部 padding 来源从 `tappableElement` 单一类型改为 `systemBars()` 与 `tappableElement`、`displayCutout` 取 max。原逻辑在纯手势导航 + 半透明手势条（小米 HyperOS、部分 Carbon ROM）场景下 `tappableElement.bottom=0`，导致 WebView 内容被手势条/导航栏遮挡，现已修复 mi6x (A10) 底部 tab 文字截断、K50 (A14 HyperOS) 手势条叠加等问题。
+- **修复阅读器下一章/上一章按钮不同步阅读进度（Issue #3）**：
+  - 调试过程：方案 A（同时驱动可见+隐藏 WebView）导致 Activity 叠加 bug 已废弃；方案 B（`loadVisibleUrl` 只导航可见 WebView）理论正确但实测无效，排查后定位根本原因如下。
+  - 根本原因：`h.js` 运行在 PC UA 的隐藏 WebView 中，从 PC 页面 `<a href>` 取到的 `nextChapter`/`prevChapter` 是 PC 格式 URL（`https://域名/comic/{manga}/chapter/{uuid}`）。`loadVisibleUrl` 把该 URL 加载到移动端 WebView 后，URL 路径不含 `/comicContent/`，`i.js` 的 `urlChangeListener` 每秒轮询时无法匹配该分支，隐藏 WebView 永远不被触发，阅读器不会打开。
+  - 修复：在 `h.js` 的 `finish()` 函数中新增 `toMobileUrl()` 辅助函数，将 PC 格式 URL 转换为移动端 H5 格式（`/comicContent/{manga}/{uuid}`）后再写入结果字符串传给 Kotlin。按钮点击后 `loadVisibleUrl` 加载移动端 URL，`i.js` 的 `modify()` 命中 `/comicContent/` 分支，调用 `invoke.loadChapter()` → `GM.loadComic()` → 隐藏 WebView 收图 → 打开阅读器，与用户双击换章完全走同一条路径。
+
+## 2026-04-23 — h.js 滚动加载架构重构：盲目滚动 → 确认驱动
+
+- **问题定位**：部分小章节（50-80页）进度条卡在中间某数字不再增加。根本原因是原方案本质为"盲目速度滚动"：以 350px/帧高速 `scrollBy`，小章节页面矮，极快滚到底部，剩余几张图的 `IntersectionObserver` 懒加载来不及响应；到底后速度自适应器虽然降速，但页面已无法再滚，懒加载永远不再触发，`isFullyLoaded` 条件永远无法满足，脚本死循环空转。
+- **架构决策**：彻底废弃"速度驱动"模型，改为"确认驱动"模型——不再关心滚动速度，转而逐张明确确认每张图的 `data-src` 已被触发后才推进。
+- **删除的旧逻辑**（整个 `smoothLoadChapter` 重写）：
+  - 删除 `currentSpeed`、`MIN_SPEED`（200）、`MAX_SPEED`（600）、`SPEED_ADJUST_INTERVAL`、`speedAdjustCooldown` — 速度自适应算法全部移除
+  - 删除 `prevHeight`、`atBottom` 检测 — 不再需要判断是否到底
+  - 删除 `isFullyLoaded`、`waitStartTime`、`allDataSrcReady` — 完成判定逻辑整体替换
+  - 删除 `countUrls` 函数 — 进度改为直接用 `curIdx` 计数
+  - 删除 `prevUrlCount`、`urlDelta` — 速度调节依据，随速度逻辑一并删除
+  - 删除 `step(timestamp)` + `requestTick()` 的定时帧循环结构
+- **新增逻辑**：
+  - 新增 `pollForTotalCount(startTime)`：以 100ms 间隔轮询 `.comicCount` DOM，最多等待 3 秒；超时则退化为以 `items.length` 作为总数（兼容无 comicCount 的章节）
+  - 新增 `startConfirmDriven(totalCount)`：维护 `curIdx` 游标，对第 `curIdx` 张图调用 `scrollIntoView({block:"center"})` 将其带入视口，等待 `img.dataset.src` 出现后 `curIdx++` 继续下一张
+  - 新增动态间隔：`nextWait = actualWait × 0.8`，clamp 在 80ms-1500ms 之间；网速快时间隔自动收缩，网速慢时自动拉长，节奏不规则，相比原 16ms 定时高频更不像爬虫
+  - 新增单张图重试：等待超过 1500ms 时重新 `scrollIntoView` 一次；二次超时则跳过该张继续（极端网络降级但不卡死）
+  - 新增 8 秒全局超时兜底：防止极端异常导致无限循环
+  - `toMobileUrl`、`finish` 函数逻辑保留，整合进新结构
+
+## 2026-04-23 — 死代码清理
+
+- **删除 `fab_settings` 按钮**（`activity_main.xml` 第 53-69 行）：该按钮 `visibility` 绑定 `mainViewModel.settingsFabVisibility`，该字段初始值为 `View.GONE` 且全局从未被设为 `VISIBLE`，即永远不可见；其 `android:onClick="onSettingsFabClicked"` 指向的方法已在 2026-04-17 随 FAB 设置入口废弃时删除，若按钮意外显示会直接崩溃。同步删除 `MainViewModel.kt` 中的 `settingsFabVisibility: MutableLiveData` 字段。
+- **删除 `PagesManager.kt` 中的 `pnHint` 死变量**：`val pnHint = if(!goNext) -2 else -1` 赋值后在同一作用域内从未被读取，其注释"通过下次 WebView 触发 callViewManga 时的 Intent 传递"所描述的机制实际从未实现，是规划中未完成的残留。
+- **删除 `WebViewClient.kt` 的 `shouldInterceptRequest` 无效覆写**：该方法体仅有 `request?.requestHeaders?.set("Access-Control-Allow-Origin", "*")` 一行，但 `WebResourceRequest.requestHeaders` 按 Android 文档返回不可修改的 Map，`set` 调用在运行时静默抛出 `UnsupportedOperationException` 或被忽略，对实际网络请求无任何影响。同步删除因此变为无用的 `import android.webkit.WebResourceRequest` 和 `import android.webkit.WebResourceResponse` 两行。
+
 ## 2026-04-22 — 深度暗色模式适配 & 消除启动/加载白闪 (v1.5.8)
 
 - **应用启动白闪消除**：新增 `AppTheme.Dark` 和 `Theme.App.Starting.Dark` 主题；在 `MainActivity.onCreate` 最早期（`installSplashScreen` 之前）根据设置切换主题，确保从点击图标起整个窗口背景均为黑色。
 - **原生强制暗黑 (Force Dark)**：引入 `androidx.webkit` 库，启用 WebView 原生 `FORCE_DARK` 支持，并采用 `USER_AGENT_DARKENING_ONLY` 激进策略，使浏览器内核在网页渲染初期即自动转为深色。
 - **加载中白闪修正 (Logo页适配)**：在 `WebChromeClient.onProgressChanged` 中实现毫秒级探测，加载进度达 2% 时即提前注入暗色滤镜 CSS，解决了网站自带 Loading 界面（带 Logo 的白色页）无法被后期注入覆盖的问题。
 - **UI 状态栏适配**：使用 `WindowInsetsControllerCompat` 动态切换状态栏图标颜色，确保在深色背景下状态栏图标清晰可见（白色）。
-- **加载性能优化**：`h.js` 引入智能限速算法，根据网页图片加载吞吐量动态调整后台模拟滚动跨度（自适应 200px-600px/帧），并使用 `requestAnimationFrame` 驱动，确保在不漏页的前提下达到最高抓取效率，同时降低 CPU 占用。
-- **漫画 URL 提取策略重构**：在 `h.js` 中彻底废弃依赖 DOM 滚动位置的旧逻辑，改为基于图片元素属性计数的全新模式，大幅提升了长章节后台预加载的稳定性和速度。
+- **加载性能优化**（*已被 2026-04-23 确认驱动重构取代*）：`h.js` 引入智能限速算法，根据网页图片加载吞吐量动态调整后台模拟滚动跨度（自适应 200px-600px/帧），并使用 `requestAnimationFrame` 驱动，确保在不漏页的前提下达到最高抓取效率，同时降低 CPU 占用。
+- **漫画 URL 提取策略重构**（*已被 2026-04-23 确认驱动重构取代*）：在 `h.js` 中彻底废弃依赖 DOM 滚动位置的旧逻辑，改为基于图片元素属性计数的全新模式，大幅提升了长章节后台预加载的稳定性和速度。
 - **健壮性提升**：优化 CSS 注入脚本，支持在 `document.head` 尚未生成时自动挂载至 `documentElement`，确保暗色滤镜应用无死角。
 
 ## 2026-04-22 — 暗色模式背景色适配 & 加载进度显示修正 (v1.5.7)

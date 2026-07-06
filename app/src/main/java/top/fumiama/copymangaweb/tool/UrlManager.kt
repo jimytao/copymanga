@@ -12,8 +12,8 @@ import java.net.URL
 
 object UrlManager {
     val candidates = listOf(
+        "https://www.copy3000.com",
         "https://www.2026copy.com",
-        "https://www.copy20.com",
         "https://www.mangacopy.com",
     )
 
@@ -47,11 +47,12 @@ object UrlManager {
     )
 
     private val descriptors = listOf(
-        SourceDescriptor("https://www.2026copy.com", "2026copy", "中国大陆推荐"),
-        SourceDescriptor("https://www.copy20.com", "copy20", "国际线路"),
+        SourceDescriptor("https://www.copy3000.com", "copy3000", "中国大陆推荐"),
+        SourceDescriptor("https://www.2026copy.com", "2026copy", "大陆备用"),
         SourceDescriptor("https://www.mangacopy.com", "mangacopy", "国际线路"),
     )
 
+    @Volatile
     var activeUrl: String = candidates[0]
         private set
 

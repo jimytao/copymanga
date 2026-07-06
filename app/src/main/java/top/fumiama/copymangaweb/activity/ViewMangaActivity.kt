@@ -7,6 +7,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.Bundle
+import android.view.WindowInsetsController
 import android.os.Handler
 import android.os.Looper
 import android.os.Message
@@ -159,9 +160,19 @@ class ViewMangaActivity : ToolsBoxActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        window.decorView.systemUiVisibility =
-            View.SYSTEM_UI_FLAG_LAYOUT_STABLE or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-        if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) window.setDecorFitsSystemWindows(false)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.setDecorFitsSystemWindows(false)
+            window.insetsController?.let { ctrl ->
+                ctrl.hide(android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.navigationBars())
+                ctrl.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility =
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+        }
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
@@ -378,6 +389,7 @@ class ViewMangaActivity : ToolsBoxActivity() {
                 else -> { text = "横向"; isChecked = false }
             }
             setOnClickListener {
+                val currentPage = pageNum
                 val next = when (p["readMode"] ?: if (p["vertical"] == "true") "v" else "h") {
                     "h" -> "v"; "v" -> "w"; else -> "h"
                 }
@@ -387,12 +399,12 @@ class ViewMangaActivity : ToolsBoxActivity() {
                     "w" -> { isChecked = true; text = "条漫" }
                     else -> { text = "横向"; isChecked = false }
                 }
-                applyReadMode(next)
+                applyReadMode(next, currentPage)
             }
         } }
     }
 
-    private fun applyReadMode(mode: String) {
+    private fun applyReadMode(mode: String, currentPage: Int) {
         when (mode) {
             "w" -> {
                 mBinding.vp.post { mBinding.vp.visibility = View.INVISIBLE }
@@ -400,6 +412,9 @@ class ViewMangaActivity : ToolsBoxActivity() {
                 mBinding.vrv.post {
                     mBinding.vrv.visibility = View.VISIBLE
                     if (mBinding.vrv.adapter == null) setupWebtoonRv()
+                    pageNum = currentPage
+                    updateSeekText()
+                    updateSeekProgress()
                 }
             }
             "v" -> {
@@ -409,6 +424,9 @@ class ViewMangaActivity : ToolsBoxActivity() {
                     mBinding.vp.visibility = View.VISIBLE
                     mBinding.vp.orientation = ViewPager2.ORIENTATION_VERTICAL
                     if (mBinding.vp.adapter == null) setupVPAdapter()
+                    pageNum = currentPage
+                    updateSeekText()
+                    updateSeekProgress()
                 }
             }
             else -> {
@@ -418,6 +436,9 @@ class ViewMangaActivity : ToolsBoxActivity() {
                     mBinding.vp.visibility = View.VISIBLE
                     mBinding.vp.orientation = ViewPager2.ORIENTATION_HORIZONTAL
                     if (mBinding.vp.adapter == null) setupVPAdapter()
+                    pageNum = currentPage
+                    updateSeekText()
+                    updateSeekProgress()
                 }
             }
         }
@@ -499,6 +520,7 @@ class ViewMangaActivity : ToolsBoxActivity() {
     }
 
     private fun updateSeekProgress() {
+        if (count == 0) return
         mBinding.oneinfo.infseek.apply { post { progress = pageNum * 100 / count } }
     }
 

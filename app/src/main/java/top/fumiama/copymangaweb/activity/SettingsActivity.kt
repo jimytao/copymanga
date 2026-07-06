@@ -1,7 +1,7 @@
 package top.fumiama.copymangaweb.activity
 
-import android.app.Activity
 import android.app.AlertDialog
+import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.widget.Button
 import android.widget.CompoundButton
@@ -21,7 +21,7 @@ import top.fumiama.copymangaweb.tool.UrlManager
 import java.io.File
 
 @Suppress("DEPRECATION")
-class SettingsActivity : Activity() {
+class SettingsActivity : AppCompatActivity() {
 
     private lateinit var prefs: android.content.SharedPreferences
     private lateinit var p: PropertiesTools
@@ -123,11 +123,15 @@ class SettingsActivity : Activity() {
     }
 
     private fun getCacheSizeText(): String {
-        val bytes = cacheDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
-        return when {
-            bytes > 1024 * 1024 -> "当前缓存约 %.1f MB，点击清理".format(bytes / 1024.0 / 1024.0)
-            bytes > 1024 -> "当前缓存约 %.1f KB，点击清理".format(bytes / 1024.0)
-            else -> "当前缓存约 ${bytes} B，点击清理"
+        return try {
+            val bytes = cacheDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+            when {
+                bytes > 1024 * 1024 -> "当前缓存约 %.1f MB，点击清理".format(bytes / 1024.0 / 1024.0)
+                bytes > 1024 -> "当前缓存约 %.1f KB，点击清理".format(bytes / 1024.0)
+                else -> "当前缓存约 ${bytes} B，点击清理"
+            }
+        } catch (e: Exception) {
+            "缓存大小读取失败，点击清理"
         }
     }
 

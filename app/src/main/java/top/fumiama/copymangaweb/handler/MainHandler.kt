@@ -34,6 +34,11 @@ class MainHandler(looper: Looper): Handler(looper) {
             }
         }
     }
+    fun clear() {
+        dialog?.dismiss()
+        dialog = null
+    }
+
     companion object {
         const val SHOW_LOADING_DIALOG = 7
         const val HIDE_LOADING_DIALOG = 8

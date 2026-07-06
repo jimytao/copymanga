@@ -283,9 +283,9 @@ class DlActivity : ToolsBoxActivity() {
             } else if(tbtn.isChecked) {
                 tbtn.apply { post {
                     isChecked = false
-                    zipPosition?.let { Thread {
-                        callVM(title, zipFile, it)
-                    }.start() }
+                    zipPosition?.let { pos ->
+                        runOnUiThread { callVM(title, zipFile, pos) }
+                    }
                 } }
             }
         }
@@ -368,7 +368,7 @@ class DlActivity : ToolsBoxActivity() {
     }
 
     companion object {
-        var comicName = "Null"
-        var json: String? = null
+        @Volatile var comicName = "Null"
+        @Volatile var json: String? = null
     }
 }
