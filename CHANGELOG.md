@@ -12,6 +12,10 @@
 - **VP 预加载并发数收窄**：`offscreenPageLimit` 从 5 降至 3（共 6 张同时请求→4 张），减少 CDN 连接竞争，提升每张图的有效带宽。
 - **移除下载 10 秒强制等待**：章节 URL 收集改为信号量精确等待（`awaitAllUrlsCollected`），收集完成即刻开始下载，不再浪费最多 10 秒。
 
+### 网络线路
+
+- **新增第四备用源 `2025copy.com`**：原有三源（copy3000 / 2026copy / mangacopy）基础上增加 `https://2025copy.com`，测速时自动纳入评分；手动选源列表同步更新。
+
 ### 稳定性修复
 
 - **`PropertiesTools` 并发安全**：`get`/`set` 加 `@Synchronized`，消除阅读器与下载同时修改设置时的竞态。

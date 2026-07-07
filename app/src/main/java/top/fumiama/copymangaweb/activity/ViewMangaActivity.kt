@@ -554,13 +554,13 @@ class ViewMangaActivity : ToolsBoxActivity() {
             .placeholder(R.drawable.ic_dl)
             .dontAnimate()
             .listener(object : RequestListener<Drawable> {
-                override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<Drawable>?, isFirstResource: Boolean): Boolean {
+                override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<Drawable>, isFirstResource: Boolean): Boolean {
                     if (retries > 0) view.postDelayed({
                         if (!isDestroyed && !isFinishing) loadImageWithRetry(view, url, retries - 1)
                     }, 1500L * (3 - retries + 1))
                     return false
                 }
-                override fun onResourceReady(r: Drawable?, m: Any?, t: Target<Drawable>?, s: DataSource?, i: Boolean) = false
+                override fun onResourceReady(r: Drawable, m: Any, t: Target<Drawable>, s: DataSource, i: Boolean) = false
             })
             .into(view)
     }
