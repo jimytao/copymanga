@@ -58,6 +58,12 @@ object UrlManager {
 
     val comicDetailUrl: String get() = "$activeUrl/comic"
 
+    fun toPcUrl(mobileUrl: String): String = when {
+        mobileUrl.contains("/comicContent/") ->
+            "$comicDetailUrl/${mobileUrl.substringAfter("comicContent/").substringBefore("/")}/chapter/${mobileUrl.substringAfterLast("/")}"
+        else -> ""
+    }
+
     fun init(context: Context) {
         val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
         val manual = prefs.getString(KEY_MANUAL_OVERRIDE_URL, null)

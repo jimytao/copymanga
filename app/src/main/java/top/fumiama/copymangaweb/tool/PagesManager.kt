@@ -14,9 +14,16 @@ class PagesManager(w: WeakReference<ViewMangaActivity>) {
     fun toPreviousPage(){ toPage(v?.r2l==true) }
     fun toNextPage(){ toPage(v?.r2l!=true) }
     fun openAdjacentChapter(goNext: Boolean) {
-        wm?.get()?.mBinding?.w?.apply { post {
-            loadUrl("javascript:invoke.clickClass(\"comicControlBottomTopClick\",${if(goNext)1 else 0});")
-        } }
+        val ma = wm?.get()
+        val prefetched = if (goNext) ma?.consumePrefetchedData() else null
+        if (prefetched != null) {
+            ma?.callViewMangaFromPrefetch(prefetched)
+        } else {
+            ma?.isPrefetching = false
+            ma?.mBinding?.w?.apply { post {
+                loadUrl("javascript:invoke.clickClass(\"comicControlBottomTopClick\",${if(goNext)1 else 0});")
+            } }
+        }
         v?.tt?.canDo = false
         v?.finish()
     }

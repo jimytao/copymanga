@@ -27,7 +27,11 @@ import android.widget.ImageView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.widget.ViewPager2
+import android.graphics.drawable.Drawable
 import com.bumptech.glide.Glide
+import com.bumptech.glide.load.DataSource
+import com.bumptech.glide.load.engine.GlideException
+import com.bumptech.glide.request.RequestListener
 import com.bumptech.glide.request.target.Target
 import top.fumiama.copymangaweb.R
 import top.fumiama.copymangaweb.activity.MainActivity.Companion.wm
@@ -142,10 +146,10 @@ class ViewMangaActivity : ToolsBoxActivity() {
             runOnUiThread {
                 try {
                     prepareItems()
-                    if(pn > 0) {
-                        pageNum = pn
-                    } else if(pn == -2){
-                        pageNum = count
+                    when {
+                        pn > 0   -> pageNum = pn
+                        pn == -2 -> pageNum = count
+                        else     -> restoreReadingProgress()
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
@@ -216,11 +220,7 @@ class ViewMangaActivity : ToolsBoxActivity() {
     private fun loadOneImg() {
         if(dlZip2View) mBinding.vone.onei.apply { post { setImageBitmap(getImgBitmap(currentItem)) } }
         else {
-            Glide.with(this@ViewMangaActivity)
-                .load(toolsBox.resolution.wrap(imgUrls[currentItem]))
-                .placeholder(R.drawable.ic_dl)
-                .dontAnimate()
-                .into(mBinding.vone.onei)
+            loadImageWithRetry(mBinding.vone.onei, imgUrls[currentItem])
             for (idx in (currentItem + 1)..(currentItem + 10)) {
                 if (idx in 0 until count) {
                     Glide.with(this@ViewMangaActivity).load(toolsBox.resolution.wrap(imgUrls[idx])).preload()
@@ -278,7 +278,7 @@ class ViewMangaActivity : ToolsBoxActivity() {
                 if (!notUseVP && !isWebtoon) {
                     mBinding.vp.post {
                         mBinding.vp.adapter = ViewData(mBinding.vp).RecyclerViewAdapter()
-                        mBinding.vp.offscreenPageLimit = 5
+                        mBinding.vp.offscreenPageLimit = 3
                         setPageNumber(currentPage)
                     }
                 }
@@ -313,7 +313,7 @@ class ViewMangaActivity : ToolsBoxActivity() {
             mBinding.vp.apply { post {
                 visibility = View.VISIBLE
                 adapter = ViewData(this).RecyclerViewAdapter()
-                offscreenPageLimit = 5
+                offscreenPageLimit = 3
                 registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
                     override fun onPageScrollStateChanged(state: Int) {
                         isPageTurning = state != ViewPager2.SCROLL_STATE_IDLE
@@ -335,6 +335,7 @@ class ViewMangaActivity : ToolsBoxActivity() {
         if (!isInSeek) hideSettings()
         updateSeekText()
         updateSeekProgress()
+        maybePrefetchNextChapter()
     }
 
     @SuppressLint("SetTextI18n")
@@ -447,7 +448,7 @@ class ViewMangaActivity : ToolsBoxActivity() {
     private fun setupVPAdapter() {
         mBinding.vp.apply {
             adapter = ViewData(this).RecyclerViewAdapter()
-            offscreenPageLimit = 5
+            offscreenPageLimit = 3
             registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
                 override fun onPageScrollStateChanged(state: Int) {
                     isPageTurning = state != ViewPager2.SCROLL_STATE_IDLE
@@ -524,10 +525,56 @@ class ViewMangaActivity : ToolsBoxActivity() {
         mBinding.oneinfo.infseek.apply { post { progress = pageNum * 100 / count } }
     }
 
+    private fun chapterKey(): String? =
+        (mangaZip?.absolutePath ?: imgUrls.firstOrNull())?.hashCode()?.toString()
+
+    private fun saveReadingProgress() {
+        val key = chapterKey() ?: return
+        if (count > 0) getSharedPreferences("reading_progress", MODE_PRIVATE)
+            .edit().putInt(key, pageNum).apply()
+    }
+
+    private fun restoreReadingProgress() {
+        val key = chapterKey() ?: return
+        val saved = getSharedPreferences("reading_progress", MODE_PRIVATE).getInt(key, 0)
+        if (saved > 1) pageNum = saved
+    }
+
+    private fun maybePrefetchNextChapter() {
+        val next = nextChapterUrl ?: return
+        if (!dlZip2View && count > 0 && pageNum >= count * 4 / 5) {
+            wm?.get()?.prefetchChapter(next)
+        }
+    }
+
+    private fun loadImageWithRetry(view: ImageView, url: String, retries: Int = 2) {
+        if (isDestroyed || isFinishing) return
+        Glide.with(this)
+            .load(toolsBox.resolution.wrap(url))
+            .placeholder(R.drawable.ic_dl)
+            .dontAnimate()
+            .listener(object : RequestListener<Drawable> {
+                override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<Drawable>?, isFirstResource: Boolean): Boolean {
+                    if (retries > 0) view.postDelayed({
+                        if (!isDestroyed && !isFinishing) loadImageWithRetry(view, url, retries - 1)
+                    }, 1500L * (3 - retries + 1))
+                    return false
+                }
+                override fun onResourceReady(r: Drawable?, m: Any?, t: Target<Drawable>?, s: DataSource?, i: Boolean) = false
+            })
+            .into(view)
+    }
+
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
+        saveReadingProgress()
         tt.canDo = false
         super.onBackPressed()
+    }
+
+    override fun onPause() {
+        saveReadingProgress()
+        super.onPause()
     }
 
     override fun onDestroy() {
@@ -554,10 +601,7 @@ class ViewMangaActivity : ToolsBoxActivity() {
                         //Glide.with(this@ViewMangaActivity).load(it).placeholder(R.drawable.bg_comment).into(holder.itemView.onei)
                         oneImage.setImageBitmap(it)
                     }
-                    else Glide.with(this@ViewMangaActivity)
-                        .load(toolsBox.resolution.wrap(imgUrls[pos])).placeholder(R.drawable.ic_dl)
-                        .dontAnimate().timeout(10000)
-                        .into(oneImage)
+                    else loadImageWithRetry(oneImage, imgUrls[pos])
                 }
             }
 
@@ -584,11 +628,7 @@ class ViewMangaActivity : ToolsBoxActivity() {
             if (dlZip2View) {
                 getImgBitmap(position)?.let { holder.iv.setImageBitmap(it) }
             } else {
-                Glide.with(this@ViewMangaActivity)
-                    .load(toolsBox.resolution.wrap(imgUrls[position]))
-                    .placeholder(R.drawable.ic_dl)
-                    .override(Target.SIZE_ORIGINAL)
-                    .into(holder.iv)
+                loadImageWithRetry(holder.iv, imgUrls[position])
             }
         }
 

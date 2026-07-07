@@ -1,13 +1,21 @@
 package top.fumiama.copymangaweb.handler
 
 import android.annotation.SuppressLint
+import android.app.PendingIntent
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.Message
 import android.widget.Toast
 import android.widget.ToggleButton
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import top.fumiama.copymangaweb.App
 import top.fumiama.copymangaweb.R
 import top.fumiama.copymangaweb.activity.DlActivity
+import top.fumiama.copymangaweb.activity.DlListActivity
 import top.fumiama.copymangaweb.tool.MangaDlTools.Companion.wmdlt
 import java.lang.ref.WeakReference
 
@@ -95,15 +103,37 @@ class DlHandler(activity: DlActivity, looper: Looper) : Handler(looper) {
             }
             6 -> d?.mBinding?.dldlbar?.tdwn?.apply { post { text = "${d?.dldChapter}/${d?.checkedChapter}" } }
             7 -> d?.deleteChapters()
-            8 -> d?.resources?.getColor(R.color.colorBlue)?.let { d?.mBinding?.dldlbar?.cdwn?.apply { post {
-                setCardBackgroundColor(it)
-            } } }
+            8 -> {
+                d?.resources?.getColor(R.color.colorBlue)?.let { d?.mBinding?.dldlbar?.cdwn?.apply { post {
+                    setCardBackgroundColor(it)
+                } } }
+                notifyDownloadComplete()
+            }
             9 -> d?.resources?.getColor(R.color.colorRed)?.let { d?.mBinding?.dldlbar?.cdwn?.apply { post {
                 setCardBackgroundColor(it)
             } } }
             10 -> Toast.makeText(d, "下载${d?.tbtnlist?.get(msg.arg1)?.textOn}的第${msg.arg2}页失败，尝试重新下载...", Toast.LENGTH_SHORT).show()
         }
     }
+    private fun notifyDownloadComplete() {
+        val ctx = d ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ctx.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        val tapIntent = PendingIntent.getActivity(
+            ctx, 0,
+            Intent(ctx, DlListActivity::class.java).putExtra("title", "我的下载"),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val notif = NotificationCompat.Builder(ctx, App.DOWNLOAD_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle("下载完成")
+            .setContentText("《${DlActivity.comicName}》已全部下载")
+            .setContentIntent(tapIntent)
+            .setAutoCancel(true)
+            .build()
+        NotificationManagerCompat.from(ctx).notify(App.DOWNLOAD_NOTIFICATION_ID, notif)
+    }
+
     private fun setSize(pageNow: Int, tbtnNo: Int){
         if(refreshSize || size == 0) {
             size = d?.tbtnlist?.get(tbtnNo)?.hash?.let { wmdlt?.get()?.getImgsCountByHash(it) }?:0

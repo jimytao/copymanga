@@ -41,6 +41,7 @@ class PropertiesTools(private val f: File):Properties() {
         return this
     }
 
+    @Synchronized
     operator fun get(key: String): String{
         return if(cache.containsKey(key)) cache[key]?:"null"
         else {
@@ -53,6 +54,7 @@ class PropertiesTools(private val f: File):Properties() {
         }
     }
 
+    @Synchronized
     operator fun set(key: String, value: String) {
         cache[key] = value
         val o = f.outputStream()

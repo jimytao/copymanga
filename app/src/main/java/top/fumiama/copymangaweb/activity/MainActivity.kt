@@ -41,6 +41,9 @@ import java.lang.ref.WeakReference
 class MainActivity: ToolsBoxActivity() {
     var uploadMessageAboveL: ValueCallback<Array<Uri>>? = null
     var saveUrlsOnly = false
+    @Volatile var isPrefetching = false
+    @Volatile var prefetchedData: String? = null
+    @Volatile private var prefetchingFor: String? = null
     lateinit var mBinding: ActivityMainBinding
     private val mViewModel = MainViewModel()
     private var isStatusBarHidden = false
@@ -260,23 +263,58 @@ class MainActivity: ToolsBoxActivity() {
         lifecycleScope.launch { withContext(Dispatchers.IO) {
             val listChapter = content.split('\n')
             if (listChapter.size < 3) return@withContext
-            if(!saveUrlsOnly) {
-                val imgs = Array(maxOf(0, listChapter.size - 3)) { listChapter[it + 3] }
-                withContext(Dispatchers.Main) {
-                    startActivity(
-                        Intent(this@MainActivity, ViewMangaActivity::class.java)
-                            .putExtra(ViewMangaActivity.EXTRA_TITLE, listChapter[0].substringBeforeLast(' '))
-                            .putExtra(ViewMangaActivity.EXTRA_NEXT_CHAPTER_URL, listChapter[1].let { if(it == "null") null else it })
-                            .putExtra(ViewMangaActivity.EXTRA_PREV_CHAPTER_URL, listChapter[2].let { if(it == "null") null else it })
-                            .putExtra(ViewMangaActivity.EXTRA_IMG_URLS, imgs)
-                    )
+            when {
+                saveUrlsOnly -> {
+                    var imgs = arrayOf<String>()
+                    for(i in 3 until listChapter.size) imgs += listChapter[i]
+                    wmdlt?.get()?.setChapterImages(listChapter[0].substringAfterLast(' '), imgs)
                 }
-            } else {
-                var imgs = arrayOf<String>()
-                for(i in 3 until listChapter.size) imgs += listChapter[i]
-                wmdlt?.get()?.setChapterImages(listChapter[0].substringAfterLast(' '), imgs)
+                isPrefetching -> { isPrefetching = false; prefetchedData = content }
+                else -> launchViewer(listChapter)
             }
         } }
+    }
+
+    fun callViewMangaFromPrefetch(content: String) {
+        lifecycleScope.launch { withContext(Dispatchers.IO) {
+            val listChapter = content.split('\n')
+            if (listChapter.size >= 3) launchViewer(listChapter)
+        } }
+    }
+
+    private suspend fun launchViewer(listChapter: List<String>) {
+        val imgs = Array(maxOf(0, listChapter.size - 3)) { listChapter[it + 3] }
+        withContext(Dispatchers.Main) {
+            startActivity(
+                Intent(this@MainActivity, ViewMangaActivity::class.java)
+                    .putExtra(ViewMangaActivity.EXTRA_TITLE, listChapter[0].substringBeforeLast(' '))
+                    .putExtra(ViewMangaActivity.EXTRA_NEXT_CHAPTER_URL, listChapter[1].let { if(it == "null") null else it })
+                    .putExtra(ViewMangaActivity.EXTRA_PREV_CHAPTER_URL, listChapter[2].let { if(it == "null") null else it })
+                    .putExtra(ViewMangaActivity.EXTRA_IMG_URLS, imgs)
+            )
+        }
+    }
+
+    fun prefetchChapter(mobileUrl: String) {
+        if (prefetchingFor == mobileUrl) return
+        prefetchingFor = mobileUrl
+        prefetchedData = null
+        val pcUrl = UrlManager.toPcUrl(mobileUrl)
+        if (pcUrl.isNotEmpty()) {
+            isPrefetching = true
+            loadHiddenUrl(pcUrl)
+            mBinding.root.postDelayed({
+                if (isPrefetching) { isPrefetching = false }
+            }, 60_000L)
+        }
+    }
+
+    fun consumePrefetchedData(): String? {
+        val d = prefetchedData
+        prefetchedData = null
+        prefetchingFor = null
+        isPrefetching = false
+        return d
     }
 
     override fun onDestroy() {

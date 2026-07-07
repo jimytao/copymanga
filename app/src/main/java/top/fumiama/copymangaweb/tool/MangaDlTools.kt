@@ -48,6 +48,13 @@ class MangaDlTools(activity: DlActivity) {
         sem.release()
     }
 
+    fun awaitAllUrlsCollected(timeoutSec: Long = 30): Boolean {
+        return if (sem.tryAcquire(timeoutSec, TimeUnit.SECONDS)) {
+            sem.release()
+            true
+        } else false
+    }
+
     fun dlChapterAndPackIntoZip(zipf: File, hash: String) {
         val idx = p[hash].toIntOrNull() ?: return
         imgUrlsList?.getOrNull(idx)?.let { images ->

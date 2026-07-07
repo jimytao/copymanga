@@ -26,7 +26,6 @@ import top.fumiama.copymangaweb.view.LazyScrollView
 import top.fumiama.copymangaweb.web.JSHidden
 import top.fumiama.copymangaweb.web.WebChromeClient
 import java.io.File
-import java.lang.Thread.sleep
 
 class DlActivity : ToolsBoxActivity() {
     lateinit var mBinding: ActivityDlBinding
@@ -101,7 +100,6 @@ class DlActivity : ToolsBoxActivity() {
     }
 
     private fun dlThread(dlMethod: (i: ChapterToggleButton) -> Unit) {
-        sleep(10000)
         for (i in tbtnlist) {
             if (i.isChecked) dlMethod(i)
             if (!canDl) {
@@ -149,6 +147,7 @@ class DlActivity : ToolsBoxActivity() {
                         Toast.makeText(this@DlActivity, "请耐心等待加载...", Toast.LENGTH_SHORT).show()
                         Thread {
                             fillChapters()
+                            mangaDlTools.awaitAllUrlsCollected()
                             dlThread { downloadChapterPages(it) }
                         }.start()
                     }
