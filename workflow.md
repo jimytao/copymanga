@@ -37,7 +37,7 @@ Kotlin 代码在本地的 `copymanga-src/`，对应远程分支 **`re_build`**�
 
 1. `android/app/signing.properties` → `STORE_FILE=../../../keystore.jks` + 密码/别名。
 2. `android/app/build.gradle.kts` 读取后配置 `signingConfigs.release`。
-3. `flutter build apk --release` 自动签名。
+3. `flutter build apk --release --split-per-abi` 自动签名（发版强制 split）。
 
 ```properties
 STORE_FILE=../../../keystore.jks
@@ -96,19 +96,38 @@ KEY_PASSWORD=<本地保管>
 
 ---
 
-## 3. 编译已签名 Android APK（本地）
+## 3. 编译已签名 Android APK（本地）— **必须 split**
+
+> ⛔ **硬性规定**：凡上传 GitHub Release / 给用户安装的 APK，**必须**带 `--split-per-abi`。  
+> ⛔ **禁止** `flutter build apk --release`（不带 split）——那是多 ABI 胖包（~55MB），不得发版。
 
 ```powershell
 cd "d:\vibe coding\rebuild_copymanga\copymanga_flutter"
-flutter build apk --release
+flutter build apk --release --split-per-abi
 ```
 
-产物：`build\app\outputs\flutter-apk\app-release.apk`  
-发版重命名建议：`CopyManga-flutter-1.0.0.apk`
+产物（示例体积约 19–23MB / 个）：
+
+| 文件 | 适用 |
+|------|------|
+| `build\app\outputs\flutter-apk\app-armeabi-v7a-release.apk` | 较老 32 位机 |
+| `build\app\outputs\flutter-apk\app-arm64-v8a-release.apk` | **绝大多数真机（优先推荐）** |
+| `build\app\outputs\flutter-apk\app-x86_64-release.apk` | 模拟器 |
+
+发版重命名（`X.Y.Z` = versionName）：
+
+```powershell
+$ver = "X.Y.Z"
+Copy-Item build\app\outputs\flutter-apk\app-armeabi-v7a-release.apk "CopyManga-flutter-$ver-armeabi-v7a.apk"
+Copy-Item build\app\outputs\flutter-apk\app-arm64-v8a-release.apk   "CopyManga-flutter-$ver-arm64-v8a.apk"
+Copy-Item build\app\outputs\flutter-apk\app-x86_64-release.apk      "CopyManga-flutter-$ver-x86_64.apk"
+```
+
+真机安装（以 arm64 为例）：
 
 ```powershell
 adb uninstall top.fumiama.copymanga_flutter   # 签名不一致时
-adb install -r build\app\outputs\flutter-apk\app-release.apk
+adb install -r "CopyManga-flutter-$ver-arm64-v8a.apk"
 ```
 
 ---
@@ -142,32 +161,39 @@ git push origin flutter-vX.Y.Z
 - 仓库需允许 Actions 写 `contents`（workflow 已声明 `permissions: contents: write`）。
 - 也可手动 `workflow_dispatch`（只出 artifact，不建 Release）。
 
-### 5.2 准备 Android APK 文件名
+### 5.2 准备 Android split APK 文件名
 
-```powershell
-cd "d:\vibe coding\rebuild_copymanga\copymanga_flutter"
-$ver = "X.Y.Z"
-$apkOut = "CopyManga-flutter-$ver.apk"
-Copy-Item build\app\outputs\flutter-apk\app-release.apk $apkOut -Force
-```
+先完成 §3 的 **`flutter build apk --release --split-per-abi`**，再重命名三份（见 §3 表格）。  
+**不要**准备或上传无 ABI 后缀的胖包 `CopyManga-flutter-X.Y.Z.apk`。
 
 ### 5.3 创建 / 更新 GitHub Release 并上传 APK（+ IPA）
 
-**首次发版**（推荐本地写好简介，比 CI 自动生成更完整）：
+**首次发版**（推荐本地写好简介）：
 
 ```powershell
-# 若 CI 尚未建 Release，用笔记文件创建：
 gh release create flutter-vX.Y.Z `
   -t "Flutter vX.Y.Z — <短标题>" `
   -F release_notes.md `
-  CopyManga-flutter-X.Y.Z.apk `
+  CopyManga-flutter-X.Y.Z-armeabi-v7a.apk `
+  CopyManga-flutter-X.Y.Z-arm64-v8a.apk `
+  CopyManga-flutter-X.Y.Z-x86_64.apk `
   --repo jimytao/copymanga
-
-# 若 CI 已挂上 IPA，再补传 APK：
-gh release upload flutter-vX.Y.Z CopyManga-flutter-X.Y.Z.apk --repo jimytao/copymanga --clobber
 ```
 
-**IPA 已在 Actions artifact、尚未进 Release 时**，可下载后一并上传：
+**Release 已存在时（补传 / 覆盖 split APK）：**
+
+```powershell
+# 若仍残留旧的胖包，先删掉
+gh release delete-asset flutter-vX.Y.Z CopyManga-flutter-X.Y.Z.apk --repo jimytao/copymanga --yes 2>$null
+
+gh release upload flutter-vX.Y.Z `
+  CopyManga-flutter-X.Y.Z-armeabi-v7a.apk `
+  CopyManga-flutter-X.Y.Z-arm64-v8a.apk `
+  CopyManga-flutter-X.Y.Z-x86_64.apk `
+  --repo jimytao/copymanga --clobber
+```
+
+**IPA**（Actions 产出或 artifact 下载后）：
 
 ```powershell
 gh run download <RUN_ID> --repo jimytao/copymanga --name CopyManga-unsigned-ipa --dir .
@@ -198,7 +224,7 @@ Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "..\_release_tmp"
 ```
 
 > **不要删**：`keystore.jks`、`android/app/signing.properties`、源码与 `assets/`。  
-> `flutter clean` 后下次发版需重新 `flutter build apk --release`（正常）。
+> `flutter clean` 后下次发版需重新 `flutter build apk --release --split-per-abi`（正常）。
 
 核验 Release 资产：
 
@@ -227,10 +253,10 @@ gh release view flutter-vX.Y.Z --repo jimytao/copymanga
 | 步骤 | Kotlin | Flutter |
 |------|--------|---------|
 | 改版本 | `app/build.gradle` | `pubspec.yaml` |
-| 编译 | `gradlew assembleRelease` | `flutter build apk --release` |
+| 编译 | `gradlew assembleRelease` | **`flutter build apk --release --split-per-abi`（强制）** |
 | 推分支 | `origin re_build` | `origin flutter` |
 | 打 Tag | `v1.5.14` | `flutter-v1.0.1` |
-| Release 资产名 | `copymanga_1.5.14.apk` | `CopyManga-flutter-1.0.1.apk` + `…-unsigned.ipa` |
+| Release 资产名 | `copymanga_1.5.14.apk` | `CopyManga-flutter-…-{abi}.apk`（三份）+ `…-unsigned.ipa` |
 | SOP | `../copymanga-src/workflow.md` | **本文件** |
 
 ---

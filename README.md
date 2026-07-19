@@ -20,9 +20,12 @@
 
 ### Android
 
-1. 在 [Releases](https://github.com/jimytao/copymanga/releases) 下载 `CopyManga-flutter-x.y.z.apk`
+1. 在 [Releases](https://github.com/jimytao/copymanga/releases) 按 CPU 架构下载（**真机优先 `arm64-v8a`**）：
+   - `CopyManga-flutter-x.y.z-arm64-v8a.apk`（推荐）
+   - `CopyManga-flutter-x.y.z-armeabi-v7a.apk`（较老 32 位机）
+   - `CopyManga-flutter-x.y.z-x86_64.apk`（模拟器）
 2. 允许「安装未知来源应用」后安装
-3. 若曾安装过早期 debug 测试包且无法覆盖，先卸载再装
+3. 若曾安装过早期 debug / 旧胖包且无法覆盖，先卸载再装
 
 ### iOS（侧载）
 
@@ -65,9 +68,11 @@
 
 ```bash
 flutter pub get
-flutter build apk --release          # Android 正式签名（需配置 android/app/signing.properties）
+# Android：发版必须 split（禁止打无 --split-per-abi 的胖包）
+flutter build apk --release --split-per-abi
 flutter build ios --no-codesign      # 需 macOS；无 Mac 用 Actions
 ```
+
 
 推送 Tag 触发 IPA：
 

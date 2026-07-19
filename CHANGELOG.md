@@ -10,7 +10,7 @@
 - **版本**：`1.0.0+1`（Android versionName=1.0.0 / versionCode=1）。
 - **签名**：与 Kotlin 版共用工作区根 `keystore.jks`；`flutter build apk --release` 自动签名。
 - **发布渠道**：分支 `flutter`；Tag / Release **`flutter-v1.0.0`**（与 Kotlin 的 `v*` 分离）。
-- **产物**：`CopyManga-flutter-1.0.0.apk` + Actions 产出的 `CopyManga-flutter-1.0.0-unsigned.ipa`（Sideloadly 重签侧载）。
+- **产物**：按 ABI split 的三份 APK（`armeabi-v7a` / `arm64-v8a` / `x86_64`，约 19–23MB）+ `CopyManga-flutter-1.0.0-unsigned.ipa`；发版禁止上传未 split 胖包。
 - **启动**：有缓存源秒开；首次测速显示橙色 Splash；WebView 进程预热。
 - **图标 / FAB**：原版同款启动图标；「我的下载」悬浮钮默认可拖至右侧偏上并记住位置。
 - **阅读器**：三模式、断点续读（看完清零）、原地切章、80% 预取、翻到头切章、页码跳转、信息栏；窄屏底栏不再溢出。
