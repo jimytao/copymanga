@@ -6,6 +6,38 @@
 
 ---
 
+## ⛔ 0.-1 目录沙箱（先读；违反即停）
+
+本 SOP **只允许**操作下列路径，保护 Kotlin 工程不被误删/覆盖：
+
+| 允许 | 路径 |
+|------|------|
+| 日常开发 | **仅** `d:\vibe coding\rebuild_copymanga\copymanga_flutter\` |
+| 发版 git | **仅** `d:\vibe coding\rebuild_copymanga\_flutter_wt\`（`commit`/`push origin flutter`/`tag`） |
+| 签名密钥（只读引用） | 工作区根 `..\keystore.jks` |
+| 同源脚本（唯一跨项目写） | 改 `assets/js/i.js`/`h.js` 时可同步复制到 `..\copymanga-src\app\src\main\assets\`（**只动这两文件**） |
+
+**绝对禁止：**
+
+- 对 `..\copymanga-src\` 执行删除、清空、写空文件、整树覆盖、`gradlew clean`（除非用户明确只要清 Kotlin）、改 `app/build.gradle` 等
+- 在 `copymanga_flutter` 里直接 `git commit` / `git push`（该目录通常不是 flutter 工作树；乱操作曾清空源文件）
+- robocopy **反向**（`_flutter_wt` → `copymanga_flutter`）或任何方向把 Flutter 文件拷进 `copymanga-src`
+- 推送 Tag `v*`（无 `flutter-` 前缀）、上传 `copymanga_x.y.z.apk`（那是 Kotlin SOP）
+- 删除或截断本工程 / worktree 的 `pubspec.yaml`、`workflow.md`、`lib/**`、`.gitignore` 等骨架文件
+
+发版前除 §0.2 本侧完整性检查外，再确认 Kotlin 侧仍在：
+
+```powershell
+$kt = "d:\vibe coding\rebuild_copymanga\copymanga-src"
+if (-not (Test-Path "$kt\app\build.gradle") -or (Get-Item "$kt\app\build.gradle").Length -lt 50) {
+  throw "ABORT: Kotlin 工程疑似被破坏，先恢复 copymanga-src 再继续 Flutter 发版"
+}
+```
+
+工作区总览沙箱条款见 `..\AGENTS.md`「目录沙箱」。
+
+---
+
 ## 0. 项目基本事实（先读，避免踩坑）
 
 | 项 | 值 |
@@ -33,7 +65,9 @@ flutter worktree:  rebuild_copymanga/_flutter_wt/**      ← 唯一允许 git co
 远程:  jimytao/copymanga.git  分支 flutter  的仓库根 /**
 ```
 
-Kotlin 代码在本地的 `copymanga-src/`（分支 `re_build`）。**禁止**：
+Kotlin 代码在本地的 `copymanga-src/`（分支 `re_build`）。除「同源 `i.js`/`h.js` 双向同步」外，**视其为只读外务**——详见上方 **§0.-1 目录沙箱**。
+
+另禁止：
 
 - 在 `copymanga-src`（`re_build`）里提交 Flutter 文件
 - 在 `copymanga_flutter` 里直接 `git commit`（该目录通常不是 flutter 分支工作树；乱操作曾导致源文件被清空）
@@ -271,12 +305,14 @@ gh release upload flutter-vX.Y.Z CopyManga-flutter-X.Y.Z-unsigned.ipa --repo jim
 
 ### 5.4 上传确认后：删除本地无用编译产物（必做）
 
-发版资产已在 GitHub 上即可删掉本机大文件，避免工作区堆积：
+发版资产已在 GitHub 上即可删掉本机大文件，避免工作区堆积。
+
+> ⚠ **清理范围仅限本 Flutter 目录**；禁止 `Remove-Item` / `clean` 指向 `..\copymanga-src`。
 
 ```powershell
 cd "d:\vibe coding\rebuild_copymanga\copymanga_flutter"
 
-# 1) 删发版用的临时重命名包（仓库根下的拷贝）
+# 1) 删发版用的临时重命名包（仅本目录）
 Remove-Item -Force -ErrorAction SilentlyContinue .\CopyManga-flutter-*.apk
 Remove-Item -Force -ErrorAction SilentlyContinue .\CopyManga-flutter-*-unsigned.ipa
 
@@ -286,11 +322,11 @@ Remove-Item -Recurse -Force -ErrorAction SilentlyContinue .\build
 Remove-Item -Recurse -Force -ErrorAction SilentlyContinue .\android\.gradle
 Remove-Item -Recurse -Force -ErrorAction SilentlyContinue .\android\app\build
 
-# 3) 若在工作区根或 _release_tmp 放过临时包，一并删
+# 3) 仅删本侧临时目录（不要删 copymanga-src）
 Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "..\_release_tmp"
 ```
 
-> **不要删**：`keystore.jks`、`android/app/signing.properties`、源码与 `assets/`。  
+> **不要删**：`keystore.jks`、`android/app/signing.properties`、源码与 `assets/`、**整个 `..\copymanga-src`**。  
 > `flutter clean` 后下次发版需重新 `flutter build apk --release --split-per-abi`（正常）。
 
 核验 Release 资产：
