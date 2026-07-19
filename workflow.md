@@ -17,7 +17,7 @@
 | Kotlin 分支（勿推错） | `re_build` |
 | Application ID | `top.fumiama.copymanga_flutter` |
 | 版本号唯一源 | `pubspec.yaml` 的 `version:` |
-| 当前版本 | `1.0.2+3`（versionName=`1.0.2`，versionCode=`3`） |
+| 当前版本 | `1.0.3+4`（versionName=`1.0.3`，versionCode=`4`） |
 | **Git Tag 格式** | **`flutter-vX.Y.Z`**（例：`flutter-v1.0.0`） |
 | Kotlin Tag 格式（勿混用） | `vX.Y.Z`（例：`v1.5.13`） |
 | 签名密钥库 | 工作区根 `keystore.jks`（与 Kotlin 共用，**不入库**） |
@@ -98,7 +98,7 @@ KEY_PASSWORD=<本地保管>
 |--|----------------|-------------------|
 | 工作分支 | `re_build` | **`flutter`** |
 | 推送 | `git push origin re_build` | `git push origin flutter` |
-| Tag | `v1.5.14` | **`flutter-v1.0.2`** |
+| Tag | `v1.5.14` | **`flutter-v1.0.3`** |
 | 打 Tag | 在 `re_build` 的提交上 | 在 **`flutter`** 的提交上 |
 | GitHub Release | Kotlin APK | Flutter APK（本地上传）+ **IPA（Actions 自动挂）** |
 | 激活 IPA CI | 无（不要用 `v*` 触发 iOS） | 推送 tag **`flutter-v*`** → `.github/workflows/build-ios.yml` |
@@ -121,7 +121,7 @@ KEY_PASSWORD=<本地保管>
 | 小功能 | → `1.1.0+4` |
 | 大改 | → `2.0.0+5` |
 
-对应 Git Tag：`flutter-v1.0.2`（Tag **不包含** `+code`，只含 versionName）。
+对应 Git Tag：`flutter-v1.0.3`（Tag **不包含** `+code`，只含 versionName）。
 
 ---
 
@@ -324,7 +324,7 @@ gh release view flutter-vX.Y.Z --repo jimytao/copymanga
 | 改版本 | `app/build.gradle` | `pubspec.yaml` |
 | 编译 | `gradlew assembleRelease` | **`flutter build apk --release --split-per-abi`（强制）** |
 | 推分支 | `origin re_build` | `origin flutter` |
-| 打 Tag | `v1.5.14` | `flutter-v1.0.2` |
+| 打 Tag | `v1.5.14` | `flutter-v1.0.3` |
 | Release 资产名 | `copymanga_1.5.14.apk` | `CopyManga-flutter-…-{abi}.apk`（三份）+ `…-unsigned.ipa` |
 | SOP | `../copymanga-src/workflow.md` | **本文件** |
 

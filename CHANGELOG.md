@@ -5,6 +5,15 @@
 
 ---
 
+## 2026-07-19 — v1.0.3：阅读器切章表 H5 同步 + 下一章收图加速
+
+- **表页进度同步**：阅读器内切章时静默 `loadUrl` 可见 WebView 到目标章（抑制 `loadComic`），退出后详情/历史不再停在首开那一话。
+- **下一章收图**：阅读器改为嵌在 `BrowserPage` Stack（不再 `Navigator.push` 全遮罩）；收图/预取时把隐藏 WebView 以 1×1 提到最顶，避免 rAF 被节流。
+- **切章稳健性**：用户显式切章强制 `stopLoading` + 重载（不再挂接可能僵死的预取）；隐藏注入加 generation；停滞时清理预取状态。
+- **收尾**：退出阅读器取消停滞计时/抑制标志/预取状态；置顶完成后再 `loadUrl`，避免在旧层级启动收图。
+- 底栏增加关闭按钮（系统返回同样退出阅读器）。
+- **版本**：`1.0.3+4`。
+
 ## 2026-07-19 — v1.0.2：暗色启动白闪 + 发版 SOP 加固
 
 - **暗色白闪**：`AT_DOCUMENT_START` UserScript + WebView `underPageBackgroundColor` 黑底 + `onLoadStart` 即刻注入；暗色 Splash 黑底过渡（不再等 `progress>2`）。

@@ -24,12 +24,16 @@ class ReaderPage extends StatefulWidget {
     required this.loadingText,
     this.onRequestChapter,
     this.onPrefetch,
+    this.onClose,
   });
 
   final ValueNotifier<ChapterData> dataNotifier;
   final ValueNotifier<String?> loadingText;
   final void Function(String mobileUrl)? onRequestChapter;
   final void Function(String mobileUrl)? onPrefetch;
+
+  /// 嵌在 BrowserPage Stack 时由外层关闭；走 Navigator.push 时可空（系统返回）
+  final VoidCallback? onClose;
 
   @override
   State<ReaderPage> createState() => _ReaderPageState();
@@ -543,6 +547,16 @@ class _ReaderPageState extends State<ReaderPage> {
             children: [
               Row(
                 children: [
+                  if (widget.onClose != null)
+                    IconButton(
+                      tooltip: '退出阅读',
+                      padding: EdgeInsets.zero,
+                      constraints:
+                          const BoxConstraints(minWidth: 36, minHeight: 36),
+                      icon: const Icon(Icons.close,
+                          color: Colors.white, size: 22),
+                      onPressed: widget.onClose,
+                    ),
                   Expanded(
                     child: Text(_data.title,
                         style: const TextStyle(color: Colors.white),

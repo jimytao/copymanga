@@ -33,8 +33,8 @@ if (!window.__cm_dbltap) {
 """;
 
 /// 主页面：可见 WebView 浏览手机版站点，隐藏 WebView 用 PC UA 收图。
-/// 两个 WebView 都是真实控件叠放（隐藏的在底层被完全遮住），
-/// 保证隐藏页面的 requestAnimationFrame 全速运行。
+/// 阅读器嵌在本页 Stack（非另开 opaque 路由）；收图时隐藏 WebView 以 1×1 置顶，
+/// 保证 requestAnimationFrame 不被节流。切章时同步可见 WebView 以更新站点进度。
 class BrowserPage extends StatefulWidget {
   const BrowserPage({super.key});
 
@@ -67,7 +67,20 @@ class _BrowserPageState extends State<BrowserPage> {
   ChapterData? _prefetchedData;
   String? _prefetchedForUrl;
 
-  // 阅读器
+  /// 表页同步导航时抑制 i.js → loadComic，避免与阅读器内收图抢隐藏 WebView
+  bool _suppressLoadComic = false;
+  Timer? _suppressLoadComicTimer;
+
+  /// 隐藏 WebView 注入代数：快速连切时丢弃过期的 500ms 延迟注入
+  int _hiddenInjectGen = 0;
+
+  /// 阅读器打开且正在收图/预取时，把隐藏 WebView 提到 Stack 顶（1×1）避免 rAF 被节流
+  bool _hiddenOnTop = false;
+  final GlobalKey _hiddenWebViewKey = GlobalKey();
+  bool _hiddenHandlersRegistered = false;
+  bool _visibleHandlersRegistered = false;
+
+  // 阅读器（嵌在本页 Stack，不用 opaque 路由盖住 WebView）
   ValueNotifier<ChapterData>? _readerNotifier;
   final ValueNotifier<String?> _readerLoading = ValueNotifier(null);
   bool _readerOpen = false;
@@ -221,8 +234,41 @@ class _BrowserPageState extends State<BrowserPage> {
     return NavigationActionPolicy.CANCEL;
   }
 
-  void _loadHiddenUrl(String url) {
-    _hiddenController?.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
+  Future<void> _loadHiddenUrl(String url) async {
+    final c = _hiddenController;
+    if (c == null) return;
+    _hiddenInjectGen++;
+    try {
+      await c.stopLoading();
+      await c.resumeTimers();
+    } catch (_) {}
+    await c.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
+  }
+
+  /// 让表 WebView 导航到当前阅读章节，站点进度/历史与阅读器对齐。
+  /// 静默：抑制随之而来的 loadComic，收图仍由隐藏 WebView 负责。
+  void _syncVisibleChapter(String mobileUrl) {
+    if (mobileUrl.isEmpty || !mobileUrl.contains('/comicContent/')) return;
+    final c = _visibleController;
+    if (c == null) return;
+    _suppressLoadComic = true;
+    _suppressLoadComicTimer?.cancel();
+    _suppressLoadComicTimer = Timer(const Duration(seconds: 5), () {
+      _suppressLoadComic = false;
+    });
+    c.loadUrl(urlRequest: URLRequest(url: WebUri(mobileUrl)));
+  }
+
+  void _setHiddenOnTop(bool onTop) {
+    if (_hiddenOnTop == onTop) return;
+    if (mounted) {
+      setState(() => _hiddenOnTop = onTop);
+    } else {
+      _hiddenOnTop = onTop;
+    }
+    if (onTop) {
+      unawaited(_hiddenController?.resumeTimers() ?? Future.value());
+    }
   }
 
   // ---- 可见 WebView 的 GM 桥（对应 JS.kt）----
@@ -231,22 +277,25 @@ class _BrowserPageState extends State<BrowserPage> {
       handlerName: 'loadComic',
       callback: (args) {
         final url = args.isNotEmpty ? args[0] as String : '';
+        if (_suppressLoadComic) return;
         final hidden = UrlManager.toHiddenUrl(url);
         if (hidden.isEmpty) return;
         if (url.contains('/comicContent/')) {
+          // 阅读器内切章由 _requestChapter 驱动，表页同步不得再抢隐藏 WebView
+          if (_readerOpen || _pendingOpen) return;
           // 章节页：收图并打开阅读器
           _pendingOpen = true;
           _pendingUrl = url;
           _prefetchTargetUrl = null;
           _prefetchedData = null;
           _prefetchedForUrl = null;
-          _loadHiddenUrl(hidden);
+          unawaited(_loadHiddenUrl(hidden));
           // 页面可能一直打不开、h.js 根本没机会弹加载框，也要有停滞守护兜底
           _armStallWatch();
         } else {
           // 详情页：抓章节结构（setFab）。若正在为用户收图，禁止顶掉隐藏 WebView
-          if (_pendingOpen) return;
-          _loadHiddenUrl(hidden);
+          if (_pendingOpen || _readerOpen) return;
+          unawaited(_loadHiddenUrl(hidden));
         }
       },
     );
@@ -328,6 +377,8 @@ class _BrowserPageState extends State<BrowserPage> {
       _pendingUrl = null;
       _prefetchedData = null;
       _prefetchedForUrl = null;
+      _prefetchTargetUrl = null;
+      _setHiddenOnTop(false);
       _setLoading(false);
       _readerLoading.value = null;
       _openOrSwapReader(data);
@@ -338,6 +389,7 @@ class _BrowserPageState extends State<BrowserPage> {
       _prefetchedData = data;
       _prefetchedForUrl = _prefetchTargetUrl;
       _prefetchTargetUrl = null;
+      if (!_pendingOpen) _setHiddenOnTop(false);
     }
   }
 
@@ -349,33 +401,58 @@ class _BrowserPageState extends State<BrowserPage> {
     }
     final notifier = ValueNotifier<ChapterData>(data);
     _readerNotifier = notifier;
-    _readerOpen = true;
-    Navigator.of(context)
-        .push(MaterialPageRoute(
-      builder: (_) => ReaderPage(
-        dataNotifier: notifier,
-        loadingText: _readerLoading,
-        onRequestChapter: _requestChapter,
-        onPrefetch: _prefetchChapter,
-      ),
-    ))
-        .then((_) {
+    setState(() => _readerOpen = true);
+  }
+
+  void _closeReader() {
+    if (!_readerOpen) return;
+    final n = _readerNotifier;
+    _readerNotifier = null;
+    _readerLoading.value = null;
+    _pendingOpen = false;
+    _pendingUrl = null;
+    _prefetchTargetUrl = null;
+    _prefetchedData = null;
+    _prefetchedForUrl = null;
+    _stallTimer?.cancel();
+    _suppressLoadComicTimer?.cancel();
+    _suppressLoadComic = false;
+    _setHiddenOnTop(false);
+    setState(() {
       _readerOpen = false;
-      _readerNotifier = null;
-      _readerLoading.value = null;
-      _pendingOpen = false;
-      _pendingUrl = null;
-      notifier.dispose();
-      // 恢复浏览页的状态栏设置（阅读器是全隐藏）
-      _applyStatusBar();
+      _loadingChapter = false;
     });
+    // 等 Reader 从树移除并 removeListener 后再 dispose，避免监听器扫到已释放的 notifier
+    WidgetsBinding.instance.addPostFrameCallback((_) => n?.dispose());
+    _applyStatusBar();
+  }
+
+  /// 阅读器打开时先把隐藏 WebView 置顶再 load，避免在旧层级上启动收图。
+  void _loadHiddenForReader(String pcUrl, {required bool Function() stillValid}) {
+    void load() {
+      if (!mounted || !stillValid()) return;
+      unawaited(_loadHiddenUrl(pcUrl));
+    }
+
+    if (_readerOpen && !_hiddenOnTop) {
+      _setHiddenOnTop(true);
+      WidgetsBinding.instance.addPostFrameCallback((_) => load());
+    } else {
+      if (_readerOpen) _setHiddenOnTop(true);
+      load();
+    }
   }
 
   void _requestChapter(String mobileUrl) {
+    // 表 H5 与阅读进度对齐（抑制 loadComic，避免双开收图）
+    _syncVisibleChapter(mobileUrl);
+
     if (_prefetchedData != null && _prefetchedForUrl == mobileUrl) {
       final data = _prefetchedData!;
       _prefetchedData = null;
       _prefetchedForUrl = null;
+      _prefetchTargetUrl = null;
+      _setHiddenOnTop(false);
       _openOrSwapReader(data);
       return;
     }
@@ -384,14 +461,10 @@ class _BrowserPageState extends State<BrowserPage> {
     _pendingOpen = true;
     _pendingUrl = mobileUrl;
     _readerLoading.value = '正在收集图片…';
-    if (_prefetchTargetUrl == mobileUrl) {
-      _prefetchTargetUrl = null;
-      _armStallWatch();
-      return;
-    }
+    // 不再挂接可能已节流/僵死的预取：用户显式切章时强制重启隐藏 WebView
     _prefetchTargetUrl = null;
-    _loadHiddenUrl(pc);
     _armStallWatch();
+    _loadHiddenForReader(pc, stillValid: () => _pendingOpen && _pendingUrl == mobileUrl);
   }
 
   void _prefetchChapter(String mobileUrl) {
@@ -402,7 +475,8 @@ class _BrowserPageState extends State<BrowserPage> {
     _prefetchTargetUrl = mobileUrl;
     _prefetchedData = null;
     _prefetchedForUrl = null;
-    _loadHiddenUrl(pc);
+    _loadHiddenForReader(pc,
+        stillValid: () => !_pendingOpen && _prefetchTargetUrl == mobileUrl);
   }
 
   void _setLoading(bool show) {
@@ -430,6 +504,8 @@ class _BrowserPageState extends State<BrowserPage> {
         t.cancel();
         _pendingOpen = false;
         _pendingUrl = null;
+        _prefetchTargetUrl = null;
+        _setHiddenOnTop(false);
         _readerLoading.value = null;
         if (mounted) {
           setState(() => _loadingChapter = false);
@@ -442,6 +518,10 @@ class _BrowserPageState extends State<BrowserPage> {
   }
 
   Future<bool> _handleBack() async {
+    if (_readerOpen) {
+      _closeReader();
+      return false;
+    }
     if (_visibleController != null && await _visibleController!.canGoBack()) {
       await _visibleController!.goBack();
       return false;
@@ -473,7 +553,9 @@ class _BrowserPageState extends State<BrowserPage> {
     AppSettings.darkMode.removeListener(_onDarkModeChanged);
     AppSettings.hideStatusBar.removeListener(_applyStatusBar);
     _stallTimer?.cancel();
+    _suppressLoadComicTimer?.cancel();
     _readerLoading.dispose();
+    _readerNotifier?.dispose();
     super.dispose();
   }
 
@@ -502,11 +584,15 @@ class _BrowserPageState extends State<BrowserPage> {
       );
 
   Future<void> _injectHidden(InAppWebViewController controller) async {
+    final gen = _hiddenInjectGen;
     await Future.delayed(const Duration(milliseconds: 500));
+    if (gen != _hiddenInjectGen) return;
     await controller.evaluateJavascript(
         source: "window.__CM_SOURCE_PROFILE='${AppSettings.sourceProfile}';"
             "window.__CM_ACTIVE_URL='${UrlManager.activeUrl}';");
+    if (gen != _hiddenInjectGen) return;
     await controller.evaluateJavascript(source: _gmShim);
+    if (gen != _hiddenInjectGen) return;
     await controller.evaluateJavascript(source: _hJs);
   }
 
@@ -515,6 +601,31 @@ class _BrowserPageState extends State<BrowserPage> {
     await controller.evaluateJavascript(source: _gmShim);
     await controller.evaluateJavascript(source: _iJs);
     await controller.evaluateJavascript(source: _dblTapJs);
+  }
+
+  /// GlobalKey 保证在底层全屏 ↔ 顶层 1×1 之间切换时复用同一 WebView 实例
+  Widget _buildHiddenWebView() {
+    return InAppWebView(
+      key: _hiddenWebViewKey,
+      initialSettings: _hiddenSettings,
+      initialUserScripts: _darkModeInitialScripts,
+      onWebViewCreated: (controller) {
+        _hiddenController = controller;
+        if (!_hiddenHandlersRegistered) {
+          _hiddenHandlersRegistered = true;
+          _registerHiddenHandlers(controller);
+        }
+      },
+      shouldOverrideUrlLoading: (controller, action) async =>
+          _allowNavigation(action.request.url),
+      onLoadStart: (controller, url) => _injectDarkModeIfNeeded(controller),
+      onProgressChanged: (controller, progress) {
+        if (progress > 0 && progress <= 10) {
+          _injectDarkModeIfNeeded(controller);
+        }
+      },
+      onLoadStop: (controller, url) => _injectHidden(controller),
+    );
   }
 
   @override
@@ -540,114 +651,120 @@ class _BrowserPageState extends State<BrowserPage> {
         // 顶/底安全区底色跟 App 暗色开关（与站点反色后一致），勿跟系统主题
         backgroundColor: _chromeColor,
         // 去掉 viewInsets，避免键盘高度变化层层传给 WebView 触发二次重排
-        body: MediaQuery.removeViewInsets(
-          removeBottom: true,
-          context: context,
-          child: Padding(
-            // 顶：状态栏/刘海（viewPadding，不受键盘影响）
-            // 底：系统 Home 指示条高度（读不到时 iOS 回退 34pt）
-            padding: EdgeInsets.only(
-              top: _statusBarHidden
-                  ? 0
-                  : MediaQuery.viewPaddingOf(context).top,
-              bottom: AppSystemUi.homeIndicatorHeight(context),
-            ),
-            child: Stack(
-              children: [
-              // 隐藏 WebView：真实控件，被上层可见 WebView 完全遮挡
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: InAppWebView(
-                    initialSettings: _hiddenSettings,
-                    initialUserScripts: _darkModeInitialScripts,
-                    onWebViewCreated: (controller) {
-                      _hiddenController = controller;
-                      _registerHiddenHandlers(controller);
-                    },
-                    shouldOverrideUrlLoading: (controller, action) async =>
-                        _allowNavigation(action.request.url),
-                    onLoadStart: (controller, url) =>
-                        _injectDarkModeIfNeeded(controller),
-                    onProgressChanged: (controller, progress) {
-                      // 兜底：加载前 10% 再补一针（主路径是 AT_DOCUMENT_START）
-                      if (progress > 0 && progress <= 10) {
-                        _injectDarkModeIfNeeded(controller);
-                      }
-                    },
-                    onLoadStop: (controller, url) => _injectHidden(controller),
-                  ),
+        // 外层 Stack：浏览区（含安全区 padding）+ 全屏阅读器 + 收图时顶置的 1×1 隐藏 WebView
+        body: Stack(
+          children: [
+            MediaQuery.removeViewInsets(
+              removeBottom: true,
+              context: context,
+              child: Padding(
+                // 顶：状态栏/刘海（viewPadding，不受键盘影响）
+                // 底：系统 Home 指示条高度（读不到时 iOS 回退 34pt）
+                padding: EdgeInsets.only(
+                  top: _statusBarHidden
+                      ? 0
+                      : MediaQuery.viewPaddingOf(context).top,
+                  bottom: AppSystemUi.homeIndicatorHeight(context),
                 ),
-              ),
-              // 可见 WebView
-              Positioned.fill(
-                child: InAppWebView(
-                  initialUrlRequest:
-                      URLRequest(url: WebUri(UrlManager.activeUrl)),
-                  initialSettings: _visibleSettings,
-                  initialUserScripts: _darkModeInitialScripts,
-                  onWebViewCreated: (controller) {
-                    _visibleController = controller;
-                    _registerVisibleHandlers(controller);
-                  },
-                  shouldOverrideUrlLoading: (controller, action) async =>
-                      _allowNavigation(action.request.url),
-                  onLoadStart: (controller, url) =>
-                      _injectDarkModeIfNeeded(controller),
-                  onProgressChanged: (controller, progress) {
-                    if (mounted) setState(() => _webProgress = progress);
-                    if (progress > 0 && progress <= 10) {
-                      _injectDarkModeIfNeeded(controller);
-                    }
-                  },
-                  onLoadStop: (controller, url) => _injectVisible(controller),
-                  // 网站的 JS 弹窗全部自动确认（对应原生版 WebChromeClient）
-                  onJsAlert: (controller, request) async =>
-                      JsAlertResponse(handledByClient: true),
-                  onJsConfirm: (controller, request) async => JsConfirmResponse(
-                      handledByClient: true,
-                      action: JsConfirmResponseAction.CONFIRM),
-                  onJsPrompt: (controller, request) async => JsPromptResponse(
-                      handledByClient: true,
-                      action: JsPromptResponseAction.CONFIRM),
-                ),
-              ),
-              // 顶部网页加载进度条（对应原生版 pw ProgressBar）
-              if (_webProgress < 100)
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  child: LinearProgressIndicator(
-                      value: _webProgress / 100, minHeight: 2),
-                ),
-              if (_loadingChapter)
-                Positioned.fill(
-                  child: Container(
-                    color: Colors.black54,
-                    child: Center(
-                      child: Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const CircularProgressIndicator(),
-                              const SizedBox(height: 16),
-                              Text(_loadingProgress.isEmpty
-                                  ? '正在收集图片…'
-                                  : '收集图片 $_loadingProgress'),
-                            ],
+                child: Stack(
+                  children: [
+                    if (!_hiddenOnTop)
+                      Positioned.fill(
+                        child: IgnorePointer(child: _buildHiddenWebView()),
+                      ),
+                    Positioned.fill(
+                      child: InAppWebView(
+                        initialUrlRequest:
+                            URLRequest(url: WebUri(UrlManager.activeUrl)),
+                        initialSettings: _visibleSettings,
+                        initialUserScripts: _darkModeInitialScripts,
+                        onWebViewCreated: (controller) {
+                          _visibleController = controller;
+                          if (!_visibleHandlersRegistered) {
+                            _visibleHandlersRegistered = true;
+                            _registerVisibleHandlers(controller);
+                          }
+                        },
+                        shouldOverrideUrlLoading: (controller, action) async =>
+                            _allowNavigation(action.request.url),
+                        onLoadStart: (controller, url) =>
+                            _injectDarkModeIfNeeded(controller),
+                        onProgressChanged: (controller, progress) {
+                          if (mounted) setState(() => _webProgress = progress);
+                          if (progress > 0 && progress <= 10) {
+                            _injectDarkModeIfNeeded(controller);
+                          }
+                        },
+                        onLoadStop: (controller, url) =>
+                            _injectVisible(controller),
+                        onJsAlert: (controller, request) async =>
+                            JsAlertResponse(handledByClient: true),
+                        onJsConfirm: (controller, request) async =>
+                            JsConfirmResponse(
+                                handledByClient: true,
+                                action: JsConfirmResponseAction.CONFIRM),
+                        onJsPrompt: (controller, request) async =>
+                            JsPromptResponse(
+                                handledByClient: true,
+                                action: JsPromptResponseAction.CONFIRM),
+                      ),
+                    ),
+                    if (_webProgress < 100 && !_readerOpen)
+                      Positioned(
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        child: LinearProgressIndicator(
+                            value: _webProgress / 100, minHeight: 2),
+                      ),
+                    if (_loadingChapter && !_readerOpen)
+                      Positioned.fill(
+                        child: Container(
+                          color: Colors.black54,
+                          child: Center(
+                            child: Card(
+                              child: Padding(
+                                padding: const EdgeInsets.all(24),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const CircularProgressIndicator(),
+                                    const SizedBox(height: 16),
+                                    Text(_loadingProgress.isEmpty
+                                        ? '正在收集图片…'
+                                        : '收集图片 $_loadingProgress'),
+                                  ],
+                                ),
+                              ),
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  ),
+                    if (!_readerOpen) _buildDraggableFab(),
+                  ],
                 ),
-              // 可拖动悬浮钮：默认右侧偏上，不挡底栏「个人」；长按拖动，松手记住位置
-              _buildDraggableFab(),
-            ],
+              ),
             ),
-          ),
+            if (_readerOpen && _readerNotifier != null)
+              Positioned.fill(
+                child: ReaderPage(
+                  dataNotifier: _readerNotifier!,
+                  loadingText: _readerLoading,
+                  onRequestChapter: _requestChapter,
+                  onPrefetch: _prefetchChapter,
+                  onClose: _closeReader,
+                ),
+              ),
+            // 必须在阅读器之上，否则仍会被盖住导致 rAF 节流
+            if (_hiddenOnTop)
+              Positioned(
+                left: 0,
+                top: 0,
+                width: 3,
+                height: 3,
+                child: IgnorePointer(child: _buildHiddenWebView()),
+              ),
+          ],
         ),
       ),
     );
