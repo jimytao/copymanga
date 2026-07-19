@@ -59,8 +59,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: Flutter ${{ github.ref_name }}
+          # 不改 title/body：首次简介由本地 gh release create 写好，此处只上传/覆盖 IPA
           files: build/output/*.ipa
           generate_release_notes: false
           fail_on_unmatched_files: true
-          # 简介可在首次发版时用 gh release create 写好；此后 CI 只追加 IPA
+          overwrite_files: true
