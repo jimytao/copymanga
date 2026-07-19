@@ -127,26 +127,83 @@ git push origin flutter
 
 ---
 
-## 5. 打 Tag → 触发 iOS IPA → 建 GitHub Release
+## 5. 打 Tag → 触发 iOS IPA → 上传 APK → **清理本地编译产物**
+
+假设版本为 `X.Y.Z`（与 `pubspec.yaml` 的 versionName 一致）。
+
+### 5.1 推送 Tag（触发 Actions 编 IPA）
 
 ```powershell
-# 版本与 pubspec 的 versionName 一致
 git tag flutter-vX.Y.Z
 git push origin flutter-vX.Y.Z
 ```
 
-效果：
+- Actions：**Build unsigned iOS IPA** → 产出 `CopyManga-flutter-X.Y.Z-unsigned.ipa` 并尝试挂到 Release。
+- 仓库需允许 Actions 写 `contents`（workflow 已声明 `permissions: contents: write`）。
+- 也可手动 `workflow_dispatch`（只出 artifact，不建 Release）。
 
-1. Actions 工作流 **Build unsigned iOS IPA** 在 `macos-latest` 跑 `flutter build ios --no-codesign`。
-2. 产出 `CopyManga-flutter-X.Y.Z-unsigned.ipa`，挂到同名 tag 的 GitHub Release（若尚无 Release 则自动创建）。
-3. 也可在 Actions 页手动 `workflow_dispatch`（不打 tag，只出 artifact）。
-
-**侧载**：用 Sideloadly 等对 unsigned IPA 重签后装到 iPhone（免费苹果账号通常 7 天需重签）。
-
-**把 Android APK 也挂到同一 Release（本地上传）：**
+### 5.2 准备 Android APK 文件名
 
 ```powershell
-gh release upload flutter-vX.Y.Z CopyManga-flutter-X.Y.Z.apk --repo jimytao/copymanga
+cd "d:\vibe coding\rebuild_copymanga\copymanga_flutter"
+$ver = "X.Y.Z"
+$apkOut = "CopyManga-flutter-$ver.apk"
+Copy-Item build\app\outputs\flutter-apk\app-release.apk $apkOut -Force
+```
+
+### 5.3 创建 / 更新 GitHub Release 并上传 APK（+ IPA）
+
+**首次发版**（推荐本地写好简介，比 CI 自动生成更完整）：
+
+```powershell
+# 若 CI 尚未建 Release，用笔记文件创建：
+gh release create flutter-vX.Y.Z `
+  -t "Flutter vX.Y.Z — <短标题>" `
+  -F release_notes.md `
+  CopyManga-flutter-X.Y.Z.apk `
+  --repo jimytao/copymanga
+
+# 若 CI 已挂上 IPA，再补传 APK：
+gh release upload flutter-vX.Y.Z CopyManga-flutter-X.Y.Z.apk --repo jimytao/copymanga --clobber
+```
+
+**IPA 已在 Actions artifact、尚未进 Release 时**，可下载后一并上传：
+
+```powershell
+gh run download <RUN_ID> --repo jimytao/copymanga --name CopyManga-unsigned-ipa --dir .
+gh release upload flutter-vX.Y.Z CopyManga-flutter-X.Y.Z-unsigned.ipa --repo jimytao/copymanga --clobber
+```
+
+**侧载**：Sideloadly 等对 unsigned IPA 重签后装到 iPhone（免费账号约 7 天重签）。
+
+### 5.4 上传确认后：删除本地无用编译产物（必做）
+
+发版资产已在 GitHub 上即可删掉本机大文件，避免工作区堆积：
+
+```powershell
+cd "d:\vibe coding\rebuild_copymanga\copymanga_flutter"
+
+# 1) 删发版用的临时重命名包（仓库根下的拷贝）
+Remove-Item -Force -ErrorAction SilentlyContinue .\CopyManga-flutter-*.apk
+Remove-Item -Force -ErrorAction SilentlyContinue .\CopyManga-flutter-*-unsigned.ipa
+
+# 2) 清 Flutter/Android 构建缓存与产物（可再 flutter build 重建）
+flutter clean
+Remove-Item -Recurse -Force -ErrorAction SilentlyContinue .\build
+Remove-Item -Recurse -Force -ErrorAction SilentlyContinue .\android\.gradle
+Remove-Item -Recurse -Force -ErrorAction SilentlyContinue .\android\app\build
+
+# 3) 若在工作区根或 _release_tmp 放过临时包，一并删
+Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "..\_release_tmp"
+```
+
+> **不要删**：`keystore.jks`、`android/app/signing.properties`、源码与 `assets/`。  
+> `flutter clean` 后下次发版需重新 `flutter build apk --release`（正常）。
+
+核验 Release 资产：
+
+```powershell
+gh release view flutter-vX.Y.Z --repo jimytao/copymanga
 ```
 
 ---

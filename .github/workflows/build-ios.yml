@@ -8,6 +8,10 @@ on:
     tags:
       - 'flutter-v*'
 
+# 默认 GITHUB_TOKEN 无 contents:write 时无法创建 Release（会 403）
+permissions:
+  contents: write
+
 jobs:
   build-ios:
     runs-on: macos-latest
@@ -57,5 +61,6 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: Flutter ${{ github.ref_name }}
           files: build/output/*.ipa
-          generate_release_notes: true
+          generate_release_notes: false
           fail_on_unmatched_files: true
+          # 简介可在首次发版时用 gh release create 写好；此后 CI 只追加 IPA

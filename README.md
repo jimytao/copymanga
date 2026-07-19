@@ -1,37 +1,85 @@
-# copymanga_flutter
+# CopyManga（Flutter）
 
-CopyManga 套壳阅读器的 Flutter 跨平台重写（Android / iOS），复刻原生 Kotlin 版
-（`../copymanga-src`）的双 WebView 架构：
+拷贝漫画第三方客户端的 **Flutter 跨平台重写**（Android / iOS），与安卓原生 Kotlin 版（[`re_build` 分支](https://github.com/jimytao/copymanga/tree/re_build)）并行维护。
 
-- **可见 WebView**：加载手机版站点，注入 `assets/js/i.js`，用户正常浏览；
-- **隐藏 HeadlessInAppWebView**：以 PC User-Agent 加载章节页，注入 `assets/js/h.js`
-  自动滚动收集图片 URL；
-- **GM 桥**：`assets/js/gm_shim.js` 把原生版的 `@JavascriptInterface GM` 对象映射到
-  `flutter_inappwebview` 的 `callHandler`，i.js / h.js 无需改动直接复用。
+> 套壳官网 H5 + 双 WebView 收图，**不调用**已被封锁的官方 API。脚本 `i.js` / `h.js` 与 Kotlin 版同源复用。
 
-## 构建
+| | Kotlin 原生版 | 本 Flutter 版 |
+|--|---------------|---------------|
+| 仓库分支 | `re_build` | **`flutter`** |
+| Release Tag | `v1.5.x` | **`flutter-v1.0.0`** 起 |
+| 包名 | `top.fumiama.copymangaweb` | `top.fumiama.copymanga_flutter`（可并装） |
+| 发版 SOP | [`copymanga-src/workflow.md`](../copymanga-src/workflow.md)（本地） | [`workflow.md`](workflow.md)（本地） |
+| 变更记录 | [`CHANGELOG.md`](../copymanga-src/CHANGELOG.md) | [`CHANGELOG.md`](CHANGELOG.md) |
+
+最新安装包：[Releases · flutter-v*](https://github.com/jimytao/copymanga/releases)
+
+---
+
+## 安装
+
+### Android
+
+1. 在 [Releases](https://github.com/jimytao/copymanga/releases) 下载 `CopyManga-flutter-x.y.z.apk`
+2. 允许「安装未知来源应用」后安装
+3. 若曾安装过早期 debug 测试包且无法覆盖，先卸载再装
+
+### iOS（侧载）
+
+1. 下载同版本 `CopyManga-flutter-x.y.z-unsigned.ipa`
+2. 用 [Sideloadly](https://sideloadly.io/) 等工具以自己的苹果账号重签安装
+3. 设置 → 通用 → VPN 与设备管理 → 信任开发者  
+4. 免费账号侧载通常约 **7 天**需重新签名
+
+无 Mac 时 IPA 由 GitHub Actions 在推送 `flutter-v*` tag 后自动编译。
+
+---
+
+## 功能
+
+- **双 WebView 收图**：可见页浏览手机站；隐藏页以 PC UA 收集章节图片（内联 WebView，避免 rAF 节流）
+- **三种阅读模式**：横向（左开/右开）/ 纵向 / 条漫
+- **断点续读**：读到一半恢复并提示；看完清零
+- **原地切章** + 80% 预取下一章 + 翻到头再滑切章
+- **批量下载**与「我的下载」（可拖动悬浮钮、离线上下章）
+- **多域名测速**（正文校验）+ 手动/自动选源 + 缓存清理
+- **暗色模式**、页码跳转、音量键翻页（仅 Android）、无网引导离线
+- **启动 Splash**：橙色品牌过渡页
+
+---
+
+## 架构（与原生版同构）
+
+```
+可见 WebView (i.js)                 隐藏 WebView (h.js)
+  用户点章节                          PC UA 加载章节页
+  GM.loadComic() ──────────────────→ 自动滚动收集图片
+  ReaderPage ←────────────────────── GM.loadChapter(列表)
+```
+
+`assets/js/gm_shim.js` 把原生 `@JavascriptInterface GM` 映射到 `flutter_inappwebview` 的 `callHandler`，**i.js / h.js 无需改动**。改脚本时请与 Kotlin 版 `app/src/main/assets/` **双向同步**。
+
+---
+
+## 本地构建
 
 ```bash
 flutter pub get
-flutter build apk            # Android
-flutter build ios --no-codesign   # iOS（需 macOS；无 Mac 用 GitHub Actions）
+flutter build apk --release          # Android 正式签名（需配置 android/app/signing.properties）
+flutter build ios --no-codesign      # 需 macOS；无 Mac 用 Actions
 ```
 
-推送 `v*` 标签或手动触发 `.github/workflows/build-ios.yml` 可在 GitHub Actions
-上产出未签名 IPA（Sideloadly / AltStore 侧载时重签）。
+推送 Tag 触发 IPA：
 
-## 当前状态
+```bash
+git tag flutter-v1.0.1
+git push origin flutter-v1.0.1
+```
 
-- [x] 双 WebView 收图链路（在线阅读；隐藏 WebView 为内联真实控件，防 rAF 节流）
-- [x] 三种阅读模式：横向翻页（右开/左开）、纵向翻页、条漫滚动
-- [x] 断点续读（看完自动清零 + 恢复提示）；页码角标点按跳页
-- [x] 阅读器内原地切换上/下一章；80% 静默预取；翻页到头再翻切章
-- [x] 批量下载（详情页 FAB → 章节多选 → 串行收图 + 4 并发下图）
-- [x] 我的下载两级浏览（漫画→章节）+ 离线上下章导航
-- [x] 暗色模式（App 主题 + 双 WebView CSS 反色注入）
-- [x] 图片预载（后 5 张）+ 失败退避自动重试
-- [x] 音量键翻页（Android 平台通道）
-- [x] 多域名测速（内容校验防停靠页）+ 手动/自动源模式 + 缓存管理
-- [x] 网页加载进度条、JS 弹窗自动确认、双击隐藏状态栏、无网引导离线
-- [ ] iOS 真机验证（音量键翻页仅 Android）
-- [ ] 启动 SplashScreen 品牌化
+版本号唯一源：`pubspec.yaml` 的 `version: x.y.z+code`。细节见 `workflow.md`。
+
+---
+
+## 免责声明
+
+本应用基于官方 H5 页面展示内容，作者不对应用内呈现的任何内容负责。仅供学习交流使用。
