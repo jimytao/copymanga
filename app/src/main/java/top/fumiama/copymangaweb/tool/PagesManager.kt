@@ -15,22 +15,13 @@ class PagesManager(w: WeakReference<ViewMangaActivity>) {
     fun toNextPage(){ toPage(v?.r2l!=true) }
     fun openAdjacentChapter(goNext: Boolean) {
         val ma = wm?.get()
-        val chapterUrl = if (goNext) v?.nextChapterUrl else v?.previousChapterUrl
         val prefetched = if (goNext) ma?.consumePrefetchedData() else null
         if (prefetched != null) {
-            // 预取命中也会把表 H5 同步到目标章（静默，避免再跑一遍收图）
-            chapterUrl?.let { ma?.loadVisibleUrlQuiet(it) }
             ma?.callViewMangaFromPrefetch(prefetched)
         } else {
-            // 放弃未完成预取，避免其迟到结果与表页 loadUrl 触发的新收图双开阅读器
-            ma?.abandonPrefetch()
+            ma?.isPrefetching = false
             ma?.mBinding?.w?.apply { post {
-                // 直接 loadUrl 比 clickClass 更稳：控件缺失/表页不同步时也能导航到目标章
-                if (!chapterUrl.isNullOrEmpty()) {
-                    loadUrl(chapterUrl)
-                } else {
-                    loadUrl("javascript:invoke.clickClass(\"comicControlBottomTopClick\",${if (goNext) 1 else 0});")
-                }
+                loadUrl("javascript:invoke.clickClass(\"comicControlBottomTopClick\",${if(goNext)1 else 0});")
             } }
         }
         v?.tt?.canDo = false

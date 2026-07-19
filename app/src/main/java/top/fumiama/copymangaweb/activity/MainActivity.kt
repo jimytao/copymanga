@@ -44,14 +44,6 @@ class MainActivity: ToolsBoxActivity() {
     @Volatile var isPrefetching = false
     @Volatile var prefetchedData: String? = null
     @Volatile private var prefetchingFor: String? = null
-    /** 表页仅为同步阅读进度而 loadUrl 时，抑制 i.js → loadComic 抢隐藏 WebView */
-    @Volatile var suppressLoadComic = false
-    private val clearSuppressLoadComic = Runnable { suppressLoadComic = false }
-    /**
-     * 放弃进行中的预取后，丢弃隐藏 WebView 尚未送达的旧 loadChapter，
-     * 直到下一次 [loadHiddenUrl] 重新开启接收。
-     */
-    @Volatile private var ignoreStaleChapterPayload = false
     lateinit var mBinding: ActivityMainBinding
     private val mViewModel = MainViewModel()
     private var isStatusBarHidden = false
@@ -212,7 +204,6 @@ class MainActivity: ToolsBoxActivity() {
     }
 
     fun loadHiddenUrl(u: String) {
-        ignoreStaleChapterPayload = false
         mBinding.wh.apply { post {
             loadUrl(u)
         } }
@@ -220,26 +211,6 @@ class MainActivity: ToolsBoxActivity() {
 
     fun loadVisibleUrl(u: String) {
         mBinding.w.post { mBinding.w.loadUrl(u) }
-    }
-
-    /** 同步表 H5 到指定章节，不触发隐藏 WebView 收图 */
-    fun loadVisibleUrlQuiet(u: String) {
-        if (u.isEmpty()) return
-        suppressLoadComic = true
-        mBinding.w.removeCallbacks(clearSuppressLoadComic)
-        mBinding.w.post {
-            mBinding.w.loadUrl(u)
-            mBinding.w.removeCallbacks(clearSuppressLoadComic)
-            mBinding.w.postDelayed(clearSuppressLoadComic, 4000L)
-        }
-    }
-
-    /** 丢弃未完成的预取，并忽略其可能迟到的 loadChapter */
-    fun abandonPrefetch() {
-        prefetchedData = null
-        prefetchingFor = null
-        isPrefetching = false
-        ignoreStaleChapterPayload = true
     }
 
     fun updateLoadProgress(p: Int) {
@@ -299,8 +270,6 @@ class MainActivity: ToolsBoxActivity() {
                     wmdlt?.get()?.setChapterImages(listChapter[0].substringAfterLast(' '), imgs)
                 }
                 isPrefetching -> { isPrefetching = false; prefetchedData = content }
-                // 保持忽略直到 loadHiddenUrl 开启新一轮收图（避免连续迟到包漏放）
-                ignoreStaleChapterPayload -> return@withContext
                 else -> launchViewer(listChapter)
             }
         } }
@@ -340,9 +309,8 @@ class MainActivity: ToolsBoxActivity() {
         }
     }
 
-    /** 仅在预取结果已就绪时取走；未完成时返回 null 且不打断进行中的预取状态 */
     fun consumePrefetchedData(): String? {
-        val d = prefetchedData ?: return null
+        val d = prefetchedData
         prefetchedData = null
         prefetchingFor = null
         isPrefetching = false
