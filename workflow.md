@@ -17,7 +17,7 @@
 | Kotlin 分支（勿推错） | `re_build` |
 | Application ID | `top.fumiama.copymanga_flutter` |
 | 版本号唯一源 | `pubspec.yaml` 的 `version:` |
-| 当前版本 | `1.0.1+2`（versionName=`1.0.1`，versionCode=`2`） |
+| 当前版本 | `1.0.2+3`（versionName=`1.0.2`，versionCode=`3`） |
 | **Git Tag 格式** | **`flutter-vX.Y.Z`**（例：`flutter-v1.0.0`） |
 | Kotlin Tag 格式（勿混用） | `vX.Y.Z`（例：`v1.5.13`） |
 | 签名密钥库 | 工作区根 `keystore.jks`（与 Kotlin 共用，**不入库**） |
@@ -26,12 +26,49 @@
 ### 本地目录 ↔ GitHub 映射
 
 ```
-本地:  rebuild_copymanga/copymanga_flutter/**   （含 pubspec.yaml、lib/、android/、ios/、.github/）
-              ↓  提交 / 推送到
+本地开发目录:  rebuild_copymanga/copymanga_flutter/**   ← 日常改代码只动这里
+                     ↓  发版时 robocopy 同步（见 §4）
+flutter worktree:  rebuild_copymanga/_flutter_wt/**      ← 唯一允许 git commit/push 到 flutter 的目录
+                     ↓  git push origin flutter
 远程:  jimytao/copymanga.git  分支 flutter  的仓库根 /**
 ```
 
-Kotlin 代码在本地的 `copymanga-src/`，对应远程分支 **`re_build`**。两边文件**不要**互相 `git add` 进对方分支。
+Kotlin 代码在本地的 `copymanga-src/`（分支 `re_build`）。**禁止**：
+
+- 在 `copymanga-src`（`re_build`）里提交 Flutter 文件
+- 在 `copymanga_flutter` 里直接 `git commit`（该目录通常不是 flutter 分支工作树；乱操作曾导致源文件被清空）
+- 用空文件 / 错误方向的拷贝覆盖任一目录的源码
+
+### 0.2 关键文件：禁止删除、禁止截断为空（必读）
+
+以下文件是工程骨架，**任何脚本/同步/清理步骤都不得 Delete、不得写成 0 字节、不得用空内容覆盖**：
+
+| 路径 | 作用 |
+|------|------|
+| `pubspec.yaml` / `pubspec.lock` | 版本与依赖唯一源 |
+| `workflow.md` / `CHANGELOG.md` / `README.md` / `AGENTS.md`（若有） | 发版 SOP 与说明 |
+| `lib/**/*.dart`（尤其 `main.dart`、`browser_page.dart`、`reader_page.dart`、`system_ui.dart`、`splash_page.dart`） | 应用逻辑 |
+| `assets/**`、`tool/**` | 资源与辅助脚本 |
+| `android/**`、`ios/**`、`.github/**`（除签名隐私文件外） | 平台工程与 CI |
+
+**发版前完整性检查**（在 `copymanga_flutter` 执行，任一项失败则中止发版）：
+
+```powershell
+$root = "d:\vibe coding\rebuild_copymanga\copymanga_flutter"
+$must = @(
+  'pubspec.yaml','workflow.md','CHANGELOG.md',
+  'lib\main.dart','lib\browser_page.dart','lib\reader_page.dart',
+  'lib\splash_page.dart','lib\system_ui.dart'
+)
+$bad = @()
+foreach ($f in $must) {
+  $p = Join-Path $root $f
+  if (-not (Test-Path $p) -or (Get-Item $p).Length -lt 50) { $bad += $f }
+}
+if ($bad.Count -gt 0) { throw "CRITICAL: empty/missing files: $($bad -join ', '). Restore from _flutter_wt or git before release." }
+```
+
+若本地被清空：优先从 `_flutter_wt`（已提交的 flutter 分支）或 `git show origin/flutter:路径` **恢复到 `copymanga_flutter`**，再继续开发；**不要**把空文件 robocopy 进 worktree。
 
 ### 签名如何生效（Android）
 
@@ -61,7 +98,7 @@ KEY_PASSWORD=<本地保管>
 |--|----------------|-------------------|
 | 工作分支 | `re_build` | **`flutter`** |
 | 推送 | `git push origin re_build` | `git push origin flutter` |
-| Tag | `v1.5.14` | **`flutter-v1.0.1`** |
+| Tag | `v1.5.14` | **`flutter-v1.0.2`** |
 | 打 Tag | 在 `re_build` 的提交上 | 在 **`flutter`** 的提交上 |
 | GitHub Release | Kotlin APK | Flutter APK（本地上传）+ **IPA（Actions 自动挂）** |
 | 激活 IPA CI | 无（不要用 `v*` 触发 iOS） | 推送 tag **`flutter-v*`** → `.github/workflows/build-ios.yml` |
@@ -80,11 +117,11 @@ KEY_PASSWORD=<本地保管>
 
 | 场景 | `pubspec.yaml` |
 |------|----------------|
-| 小修 | `1.0.0+1` → `1.0.1+2` |
-| 小功能 | → `1.1.0+3` |
-| 大改 | → `2.0.0+4` |
+| 小修 | `1.0.1+2` → `1.0.2+3` |
+| 小功能 | → `1.1.0+4` |
+| 大改 | → `2.0.0+5` |
 
-对应 Git Tag：`flutter-v1.0.1`（Tag **不包含** `+code`，只含 versionName）。
+对应 Git Tag：`flutter-v1.0.2`（Tag **不包含** `+code`，只含 versionName）。
 
 ---
 
@@ -132,14 +169,44 @@ adb install -r "CopyManga-flutter-$ver-arm64-v8a.apk"
 
 ---
 
-## 4. 提交并推送到 `flutter` 分支
+## 4. 同步到 worktree → 提交并推送 `flutter` 分支
 
-在 **已切换到 `flutter` 分支的 git 工作树**中操作（见 §8 首次建分支）。日常开发推荐用 git worktree，避免和 `copymanga-src` 的 `re_build` 抢同一工作目录。
+日常开发只改 `copymanga_flutter/`。该目录**本身通常没有**指向 `flutter` 分支的 `.git`；提交必须在 worktree 里做。
+
+### 4.1 准备 / 刷新 worktree
 
 ```powershell
+cd "d:\vibe coding\rebuild_copymanga\copymanga-src"
+git fetch origin flutter
+# 若尚无 worktree：
+# git worktree add "..\_flutter_wt" flutter
+# 若已有：保持 checkout 在 flutter 即可
+git -C "..\_flutter_wt" status -sb
+```
+
+### 4.2 单向同步（只允许 开发目录 → worktree）
+
+先做 §0.2 完整性检查。再 robocopy（**排除**构建与签名；**禁止**反向拷贝）：
+
+```powershell
+$src = "d:\vibe coding\rebuild_copymanga\copymanga_flutter"
+$dst = "d:\vibe coding\rebuild_copymanga\_flutter_wt"
+robocopy $src $dst /E /NFL /NDL /NJH /NJS /nc /ns /np `
+  /XD build .dart_tool .idea .git android\.gradle android\app\build ios\Pods ios\.symlinks ios\Flutter\ephemeral `
+  /XF signing.properties local.properties *.iml .flutter-plugins-dependencies .flutter-plugins
+Remove-Item -Force -ErrorAction SilentlyContinue "$dst\android\app\signing.properties"
+Remove-Item -Force -ErrorAction SilentlyContinue "$dst\android\local.properties"
+```
+
+同步后在 `$dst` 再跑一遍「关键文件 Length ≥ 50」检查；失败则 **不要 commit**，从 `origin/flutter` 恢复。
+
+### 4.3 提交推送
+
+```powershell
+cd "d:\vibe coding\rebuild_copymanga\_flutter_wt"
 git status
 git add -A
-# 确认没有 signing.properties / keystore
+# 确认没有 signing.properties / keystore / 0 字节关键文件
 git commit -m "feat: Flutter vX.Y.Z <短标题>"
 git push origin flutter
 ```
@@ -257,7 +324,7 @@ gh release view flutter-vX.Y.Z --repo jimytao/copymanga
 | 改版本 | `app/build.gradle` | `pubspec.yaml` |
 | 编译 | `gradlew assembleRelease` | **`flutter build apk --release --split-per-abi`（强制）** |
 | 推分支 | `origin re_build` | `origin flutter` |
-| 打 Tag | `v1.5.14` | `flutter-v1.0.1` |
+| 打 Tag | `v1.5.14` | `flutter-v1.0.2` |
 | Release 资产名 | `copymanga_1.5.14.apk` | `CopyManga-flutter-…-{abi}.apk`（三份）+ `…-unsigned.ipa` |
 | SOP | `../copymanga-src/workflow.md` | **本文件** |
 

@@ -5,6 +5,12 @@
 
 ---
 
+## 2026-07-19 — v1.0.2：暗色启动白闪 + 发版 SOP 加固
+
+- **暗色白闪**：`AT_DOCUMENT_START` UserScript + WebView `underPageBackgroundColor` 黑底 + `onLoadStart` 即刻注入；暗色 Splash 黑底过渡（不再等 `progress>2`）。
+- **workflow**：标明 `copymanga_flutter` ↔ `_flutter_wt` 单向同步；关键文件禁止删除/截断为空；发版前完整性检查。
+- **版本**：`1.0.2+3`。
+
 ## 2026-07-19 — v1.0.1：iOS 全面屏 / 键盘抖动 / 图标启动图
 
 - **全面屏**：iOS 改用 `edgeToEdge`；上界贴刘海下沿；下界读系统 Home 指示条高度（`safeAreaInsets` / `viewPadding.bottom`，会话缓存；读不到时刘海机回退 34pt）。

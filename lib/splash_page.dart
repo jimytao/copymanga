@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import 'browser_page.dart';
+import 'settings.dart';
 import 'url_manager.dart';
 
 /// 开机过渡：背景/图标对齐原生 SplashScreen（colorPrimary + 启动图标）。
@@ -57,8 +58,11 @@ class _SplashPageState extends State<SplashPage> {
 
   @override
   Widget build(BuildContext context) {
-    // 与原生 Theme.App.Starting 一致：#FFCC7F + 居中图标
-    const bg = Color(0xFFFFCC7F);
+    // 暗色：黑底过渡，避免橙闪→白闪→暗网；浅色仍用原生 #FFCC7F
+    final dark = AppSettings.darkMode.value;
+    final bg = dark ? Colors.black : const Color(0xFFFFCC7F);
+    final fg = dark ? Colors.white70 : const Color(0xFF3E2723);
+    final accent = dark ? Colors.white54 : const Color(0xFF5D4037);
     return Scaffold(
       backgroundColor: bg,
       body: Center(
@@ -72,31 +76,28 @@ class _SplashPageState extends State<SplashPage> {
               filterQuality: FilterQuality.high,
             ),
             const SizedBox(height: 20),
-            const Text(
+            Text(
               '拷贝漫画',
               style: TextStyle(
                 fontSize: 22,
                 fontWeight: FontWeight.w600,
-                color: Color(0xFF3E2723),
+                color: fg,
               ),
             ),
             if (_status.isNotEmpty) ...[
               const SizedBox(height: 28),
-              const SizedBox(
+              SizedBox(
                 width: 22,
                 height: 22,
                 child: CircularProgressIndicator(
                   strokeWidth: 2.5,
-                  color: Color(0xFF5D4037),
+                  color: accent,
                 ),
               ),
               const SizedBox(height: 12),
               Text(
                 _status,
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: Color(0xFF5D4037),
-                ),
+                style: TextStyle(fontSize: 13, color: accent),
               ),
             ],
           ],

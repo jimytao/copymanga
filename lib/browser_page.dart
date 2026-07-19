@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
@@ -142,15 +143,49 @@ class _BrowserPageState extends State<BrowserPage> {
 
   // ---- 暗色模式 ----
 
+  /// 在 document 创建最早阶段注入，避免 iOS 首帧白闪后再等 progress>2。
+  late final UserScript _darkModeUserScript = UserScript(
+    source: darkModeJs,
+    injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+    forMainFrameOnly: false,
+  );
+
+  UnmodifiableListView<UserScript> get _darkModeInitialScripts =>
+      AppSettings.darkMode.value
+          ? UnmodifiableListView<UserScript>([_darkModeUserScript])
+          : UnmodifiableListView<UserScript>(const []);
+
+  Future<void> _applyDarkModeToController(
+      InAppWebViewController? c, bool on) async {
+    if (c == null) return;
+    if (on) {
+      await c.addUserScript(userScript: _darkModeUserScript);
+      await c.evaluateJavascript(source: darkModeJs);
+    } else {
+      await c.removeUserScript(userScript: _darkModeUserScript);
+      await c.evaluateJavascript(source: removeDarkModeJs);
+    }
+    await c.setSettings(
+      settings: InAppWebViewSettings(
+        underPageBackgroundColor: on ? Colors.black : Colors.white,
+      ),
+    );
+  }
+
   void _onDarkModeChanged() {
     final on = AppSettings.darkMode.value;
-    _visibleController
-        ?.evaluateJavascript(source: on ? darkModeJs : removeDarkModeJs);
-    _hiddenController
-        ?.evaluateJavascript(source: on ? darkModeJs : removeDarkModeJs);
+    unawaited(_applyDarkModeToController(_visibleController, on));
+    unawaited(_applyDarkModeToController(_hiddenController, on));
     _syncSystemUi();
     // 刷新 Scaffold 顶/底安全区底色（与网页明暗一致）
     if (mounted) setState(() {});
+  }
+
+  /// 每次导航开始立刻再打一针（UserScript 覆盖新建 document；此为双保险）
+  void _injectDarkModeIfNeeded(InAppWebViewController controller) {
+    if (AppSettings.darkMode.value) {
+      controller.evaluateJavascript(source: darkModeJs);
+    }
   }
 
   // ---- 状态栏 ----
@@ -448,6 +483,22 @@ class _BrowserPageState extends State<BrowserPage> {
         useShouldOverrideUrlLoading: true,
         useWideViewPort: true,
         loadWithOverviewMode: true,
+        underPageBackgroundColor:
+            AppSettings.darkMode.value ? Colors.black : Colors.white,
+      );
+
+  InAppWebViewSettings get _visibleSettings => InAppWebViewSettings(
+        javaScriptEnabled: true,
+        useShouldOverrideUrlLoading: true,
+        mediaPlaybackRequiresUserGesture: true,
+        supportZoom: false,
+        allowsBackForwardNavigationGestures: false,
+        contentInsetAdjustmentBehavior:
+            ScrollViewContentInsetAdjustmentBehavior.NEVER,
+        disableInputAccessoryView: true,
+        // WKWebView 未绘页面前的底色，暗色时避免白闪
+        underPageBackgroundColor:
+            AppSettings.darkMode.value ? Colors.black : Colors.white,
       );
 
   Future<void> _injectHidden(InAppWebViewController controller) async {
@@ -508,15 +559,19 @@ class _BrowserPageState extends State<BrowserPage> {
                 child: IgnorePointer(
                   child: InAppWebView(
                     initialSettings: _hiddenSettings,
+                    initialUserScripts: _darkModeInitialScripts,
                     onWebViewCreated: (controller) {
                       _hiddenController = controller;
                       _registerHiddenHandlers(controller);
                     },
                     shouldOverrideUrlLoading: (controller, action) async =>
                         _allowNavigation(action.request.url),
+                    onLoadStart: (controller, url) =>
+                        _injectDarkModeIfNeeded(controller),
                     onProgressChanged: (controller, progress) {
-                      if (progress > 2 && AppSettings.darkMode.value) {
-                        controller.evaluateJavascript(source: darkModeJs);
+                      // 兜底：加载前 10% 再补一针（主路径是 AT_DOCUMENT_START）
+                      if (progress > 0 && progress <= 10) {
+                        _injectDarkModeIfNeeded(controller);
                       }
                     },
                     onLoadStop: (controller, url) => _injectHidden(controller),
@@ -528,29 +583,20 @@ class _BrowserPageState extends State<BrowserPage> {
                 child: InAppWebView(
                   initialUrlRequest:
                       URLRequest(url: WebUri(UrlManager.activeUrl)),
-                  initialSettings: InAppWebViewSettings(
-                    javaScriptEnabled: true,
-                    useShouldOverrideUrlLoading: true,
-                    mediaPlaybackRequiresUserGesture: true,
-                    // 减少 iOS 键盘弹出时的额外视口跳动
-                    supportZoom: false,
-                    allowsBackForwardNavigationGestures: false,
-                    // 禁止 WKWebView 随安全区/键盘自动改 contentInset（抖动主因之一）
-                    contentInsetAdjustmentBehavior:
-                        ScrollViewContentInsetAdjustmentBehavior.NEVER,
-                    disableInputAccessoryView: true,
-                  ),
+                  initialSettings: _visibleSettings,
+                  initialUserScripts: _darkModeInitialScripts,
                   onWebViewCreated: (controller) {
                     _visibleController = controller;
                     _registerVisibleHandlers(controller);
                   },
                   shouldOverrideUrlLoading: (controller, action) async =>
                       _allowNavigation(action.request.url),
+                  onLoadStart: (controller, url) =>
+                      _injectDarkModeIfNeeded(controller),
                   onProgressChanged: (controller, progress) {
                     if (mounted) setState(() => _webProgress = progress);
-                    // 尽早注入暗色 CSS，避免加载过程白屏闪烁（对应原生版 WebChromeClient）
-                    if (progress > 2 && AppSettings.darkMode.value) {
-                      controller.evaluateJavascript(source: darkModeJs);
+                    if (progress > 0 && progress <= 10) {
+                      _injectDarkModeIfNeeded(controller);
                     }
                   },
                   onLoadStop: (controller, url) => _injectVisible(controller),
