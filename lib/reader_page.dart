@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -12,6 +11,7 @@ import 'chapter_data.dart';
 import 'downloader.dart';
 import 'retry_image.dart';
 import 'settings.dart';
+import 'system_ui.dart';
 import 'volume_keys.dart';
 
 /// 全屏漫画阅读器：横/纵/条漫三模式、原地切章、断点续读、80% 预取、
@@ -74,7 +74,7 @@ class _ReaderPageState extends State<ReaderPage> {
     _data = widget.dataNotifier.value;
     widget.dataNotifier.addListener(_onChapterChanged);
     _itemPositionsListener.itemPositions.addListener(_onWebtoonScroll);
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    AppSystemUi.applyReader();
     if (AppSettings.volTurn) {
       VolumeKeys.enable(up: _volBack, down: _volForward);
     }
@@ -405,13 +405,8 @@ class _ReaderPageState extends State<ReaderPage> {
     _saveProgress();
     widget.dataNotifier.removeListener(_onChapterChanged);
     _itemPositionsListener.itemPositions.removeListener(_onWebtoonScroll);
-    // 恢复用户的状态栏设置，而不是无条件全部显示
-    SystemChrome.setEnabledSystemUIMode(
-      SystemUiMode.manual,
-      overlays: AppSettings.hideStatusBar.value
-          ? [SystemUiOverlay.bottom]
-          : SystemUiOverlay.values,
-    );
+    // 必须走 AppSystemUi：iOS 写回 manual 会再次出现上下黑边
+    AppSystemUi.restoreBrowserFromSettings();
     VolumeKeys.disable();
     _clockTimer?.cancel();
     _pageController.dispose();

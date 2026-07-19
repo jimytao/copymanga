@@ -2,8 +2,7 @@ import 'dart:async';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'
-    show SystemChrome, SystemNavigator, SystemUiMode, SystemUiOverlay, rootBundle;
+import 'package:flutter/services.dart' show SystemNavigator, rootBundle;
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -14,6 +13,7 @@ import 'downloads_page.dart';
 import 'reader_page.dart';
 import 'settings.dart';
 import 'settings_page.dart';
+import 'system_ui.dart';
 import 'url_manager.dart';
 
 const pcUserAgent =
@@ -148,31 +148,33 @@ class _BrowserPageState extends State<BrowserPage> {
         ?.evaluateJavascript(source: on ? darkModeJs : removeDarkModeJs);
     _hiddenController
         ?.evaluateJavascript(source: on ? darkModeJs : removeDarkModeJs);
+    _syncSystemUi();
+    // 刷新 Scaffold 顶/底安全区底色（与网页明暗一致）
+    if (mounted) setState(() {});
   }
 
   // ---- 状态栏 ----
 
   void _applyStatusBar() {
     _statusBarHidden = AppSettings.hideStatusBar.value;
-    SystemChrome.setEnabledSystemUIMode(
-      SystemUiMode.manual,
-      overlays: _statusBarHidden
-          ? [SystemUiOverlay.bottom]
-          : SystemUiOverlay.values,
-    );
+    _syncSystemUi();
     if (mounted) setState(() {});
   }
 
   void _toggleStatusBarRuntime() {
     _statusBarHidden = !_statusBarHidden;
-    SystemChrome.setEnabledSystemUIMode(
-      SystemUiMode.manual,
-      overlays: _statusBarHidden
-          ? [SystemUiOverlay.bottom]
-          : SystemUiOverlay.values,
-    );
+    _syncSystemUi();
     if (mounted) setState(() {});
   }
+
+  /// 顶/底安全区由页面 Padding 自行让出（顶=状态栏/刘海，底=Home 指示条）。
+  void _syncSystemUi() {
+    AppSystemUi.applyBrowser(statusBarHidden: _statusBarHidden);
+  }
+
+  /// 网页外露底色：浅色白、暗色黑（与暗色 CSS 反色后的观感一致）。
+  Color get _chromeColor =>
+      AppSettings.darkMode.value ? Colors.black : Colors.white;
 
   NavigationActionPolicy _allowNavigation(WebUri? url) {
     if (url == null) return NavigationActionPolicy.CANCEL;
@@ -467,7 +469,10 @@ class _BrowserPageState extends State<BrowserPage> {
   @override
   Widget build(BuildContext context) {
     if (!_assetsLoaded) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return Scaffold(
+        backgroundColor: _chromeColor,
+        body: const Center(child: CircularProgressIndicator()),
+      );
     }
     return PopScope(
       canPop: false,
@@ -478,9 +483,26 @@ class _BrowserPageState extends State<BrowserPage> {
         }
       },
       child: Scaffold(
-        body: SafeArea(
-          child: Stack(
-            children: [
+        // 关键：禁止 Flutter 随键盘压缩整页，否则 WKWebView 重排会导致
+        // 登录框从屏幕上方「闪」到下方、输入时抖动。交给网页自己滚动。
+        resizeToAvoidBottomInset: false,
+        // 顶/底安全区底色跟 App 暗色开关（与站点反色后一致），勿跟系统主题
+        backgroundColor: _chromeColor,
+        // 去掉 viewInsets，避免键盘高度变化层层传给 WebView 触发二次重排
+        body: MediaQuery.removeViewInsets(
+          removeBottom: true,
+          context: context,
+          child: Padding(
+            // 顶：状态栏/刘海（viewPadding，不受键盘影响）
+            // 底：系统 Home 指示条高度（读不到时 iOS 回退 34pt）
+            padding: EdgeInsets.only(
+              top: _statusBarHidden
+                  ? 0
+                  : MediaQuery.viewPaddingOf(context).top,
+              bottom: AppSystemUi.homeIndicatorHeight(context),
+            ),
+            child: Stack(
+              children: [
               // 隐藏 WebView：真实控件，被上层可见 WebView 完全遮挡
               Positioned.fill(
                 child: IgnorePointer(
@@ -510,6 +532,13 @@ class _BrowserPageState extends State<BrowserPage> {
                     javaScriptEnabled: true,
                     useShouldOverrideUrlLoading: true,
                     mediaPlaybackRequiresUserGesture: true,
+                    // 减少 iOS 键盘弹出时的额外视口跳动
+                    supportZoom: false,
+                    allowsBackForwardNavigationGestures: false,
+                    // 禁止 WKWebView 随安全区/键盘自动改 contentInset（抖动主因之一）
+                    contentInsetAdjustmentBehavior:
+                        ScrollViewContentInsetAdjustmentBehavior.NEVER,
+                    disableInputAccessoryView: true,
                   ),
                   onWebViewCreated: (controller) {
                     _visibleController = controller;
@@ -571,6 +600,7 @@ class _BrowserPageState extends State<BrowserPage> {
               // 可拖动悬浮钮：默认右侧偏上，不挡底栏「个人」；长按拖动，松手记住位置
               _buildDraggableFab(),
             ],
+            ),
           ),
         ),
       ),

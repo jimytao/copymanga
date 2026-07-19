@@ -5,6 +5,15 @@
 
 ---
 
+## 2026-07-19 — v1.0.1：iOS 全面屏 / 键盘抖动 / 图标启动图
+
+- **全面屏**：iOS 改用 `edgeToEdge`；上界贴刘海下沿；下界读系统 Home 指示条高度（`safeAreaInsets` / `viewPadding.bottom`，会话缓存；读不到时刘海机回退 34pt）。
+- **网页外底色**：跟 App 暗色开关（浅白/深黑），`themeMode` 不再跟系统；修好「网页白、壳黑」反差。
+- **键盘 / 抖动**：`resizeToAvoidBottomInset: false` + 剥离 `viewInsets`；顶栏 inset 用 `viewPadding`；WKWebView `contentInsetAdjustmentBehavior=NEVER`、关侧滑返回与输入附件条。
+- **阅读器回归**：退出不再写回 `manual`；统一 `AppSystemUi`；iOS 藏状态栏用 `immersiveSticky`。
+- **图标 / 启动**：补齐 AppIcon + 橙色 LaunchScreen；显示名「拷贝漫画」；Main.storyboard 同色防闪白。
+- **版本**：`1.0.1+2`。
+
 ## 2026-07-19 — v1.0.0：跨平台首发（正式签名 + GitHub Release）
 
 - **版本**：`1.0.0+1`（Android versionName=1.0.0 / versionCode=1）。

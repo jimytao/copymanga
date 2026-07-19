@@ -17,7 +17,7 @@
 | Kotlin 分支（勿推错） | `re_build` |
 | Application ID | `top.fumiama.copymanga_flutter` |
 | 版本号唯一源 | `pubspec.yaml` 的 `version:` |
-| 当前版本 | `1.0.0+1`（versionName=`1.0.0`，versionCode=`1`） |
+| 当前版本 | `1.0.1+2`（versionName=`1.0.1`，versionCode=`2`） |
 | **Git Tag 格式** | **`flutter-vX.Y.Z`**（例：`flutter-v1.0.0`） |
 | Kotlin Tag 格式（勿混用） | `vX.Y.Z`（例：`v1.5.13`） |
 | 签名密钥库 | 工作区根 `keystore.jks`（与 Kotlin 共用，**不入库**） |
@@ -245,6 +245,8 @@ gh release view flutter-vX.Y.Z --repo jimytao/copymanga
 | 产物 | unsigned IPA artifact + Release 附件 |
 
 不需要在 Xcode 里改版本号；以 `pubspec.yaml` 为准。
+
+更换品牌图标时：把源图放到 `assets/icon/ic_launcher.png`，再跑 `python tool/gen_ios_icons.py`（会写 `AppIcon` + `LaunchImage`）；LaunchScreen 背景色与 Splash 一致为 `#FFCC7F`。
 
 ---
 
