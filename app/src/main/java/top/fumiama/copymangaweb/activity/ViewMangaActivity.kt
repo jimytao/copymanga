@@ -530,14 +530,20 @@ class ViewMangaActivity : ToolsBoxActivity() {
 
     private fun saveReadingProgress() {
         val key = chapterKey() ?: return
-        if (count > 0) getSharedPreferences("reading_progress", MODE_PRIVATE)
-            .edit().putInt(key, pageNum).apply()
+        if (count <= 0) return
+        val sp = getSharedPreferences("reading_progress", MODE_PRIVATE)
+        // 读到最后一页（容忍一页误差）视为看完，清除断点，下次从头开始
+        if (pageNum >= count - 1) sp.edit().remove(key).apply()
+        else sp.edit().putInt(key, pageNum).apply()
     }
 
     private fun restoreReadingProgress() {
         val key = chapterKey() ?: return
         val saved = getSharedPreferences("reading_progress", MODE_PRIVATE).getInt(key, 0)
-        if (saved > 1) pageNum = saved
+        if (saved in 2 until count) {
+            pageNum = saved
+            Toast.makeText(this, "已跳转至上次阅读的第 $saved 页", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun maybePrefetchNextChapter() {
