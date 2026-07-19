@@ -34,7 +34,7 @@ if (!window.__cm_dbltap) {
 
 /// 主页面：可见 WebView 浏览手机版站点，隐藏 WebView 用 PC UA 收图。
 /// 阅读器嵌在本页 Stack（非另开 opaque 路由）；收图时隐藏 WebView 以 1×1 置顶，
-/// 保证 requestAnimationFrame 不被节流。切章时同步可见 WebView 以更新站点进度。
+/// 保证 requestAnimationFrame 不被节流。阅读器内切章不改动可见 WebView。
 class BrowserPage extends StatefulWidget {
   const BrowserPage({super.key});
 
@@ -66,10 +66,6 @@ class _BrowserPageState extends State<BrowserPage> {
   String? _prefetchTargetUrl;
   ChapterData? _prefetchedData;
   String? _prefetchedForUrl;
-
-  /// 表页同步导航时抑制 i.js → loadComic，避免与阅读器内收图抢隐藏 WebView
-  bool _suppressLoadComic = false;
-  Timer? _suppressLoadComicTimer;
 
   /// 隐藏 WebView 注入代数：快速连切时丢弃过期的 500ms 延迟注入
   int _hiddenInjectGen = 0;
@@ -245,20 +241,6 @@ class _BrowserPageState extends State<BrowserPage> {
     await c.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
   }
 
-  /// 让表 WebView 导航到当前阅读章节，站点进度/历史与阅读器对齐。
-  /// 静默：抑制随之而来的 loadComic，收图仍由隐藏 WebView 负责。
-  void _syncVisibleChapter(String mobileUrl) {
-    if (mobileUrl.isEmpty || !mobileUrl.contains('/comicContent/')) return;
-    final c = _visibleController;
-    if (c == null) return;
-    _suppressLoadComic = true;
-    _suppressLoadComicTimer?.cancel();
-    _suppressLoadComicTimer = Timer(const Duration(seconds: 5), () {
-      _suppressLoadComic = false;
-    });
-    c.loadUrl(urlRequest: URLRequest(url: WebUri(mobileUrl)));
-  }
-
   void _setHiddenOnTop(bool onTop) {
     if (_hiddenOnTop == onTop) return;
     if (mounted) {
@@ -277,11 +259,10 @@ class _BrowserPageState extends State<BrowserPage> {
       handlerName: 'loadComic',
       callback: (args) {
         final url = args.isNotEmpty ? args[0] as String : '';
-        if (_suppressLoadComic) return;
         final hidden = UrlManager.toHiddenUrl(url);
         if (hidden.isEmpty) return;
         if (url.contains('/comicContent/')) {
-          // 阅读器内切章由 _requestChapter 驱动，表页同步不得再抢隐藏 WebView
+          // 阅读器内切章由 _requestChapter 驱动，不接受表页重复触发
           if (_readerOpen || _pendingOpen) return;
           // 章节页：收图并打开阅读器
           _pendingOpen = true;
@@ -415,8 +396,6 @@ class _BrowserPageState extends State<BrowserPage> {
     _prefetchedData = null;
     _prefetchedForUrl = null;
     _stallTimer?.cancel();
-    _suppressLoadComicTimer?.cancel();
-    _suppressLoadComic = false;
     _setHiddenOnTop(false);
     setState(() {
       _readerOpen = false;
@@ -444,9 +423,6 @@ class _BrowserPageState extends State<BrowserPage> {
   }
 
   void _requestChapter(String mobileUrl) {
-    // 表 H5 与阅读进度对齐（抑制 loadComic，避免双开收图）
-    _syncVisibleChapter(mobileUrl);
-
     if (_prefetchedData != null && _prefetchedForUrl == mobileUrl) {
       final data = _prefetchedData!;
       _prefetchedData = null;
@@ -553,7 +529,6 @@ class _BrowserPageState extends State<BrowserPage> {
     AppSettings.darkMode.removeListener(_onDarkModeChanged);
     AppSettings.hideStatusBar.removeListener(_applyStatusBar);
     _stallTimer?.cancel();
-    _suppressLoadComicTimer?.cancel();
     _readerLoading.dispose();
     _readerNotifier?.dispose();
     super.dispose();
