@@ -7,13 +7,15 @@ import top.fumiama.copymangaweb.tool.UrlManager
 class JS {
     @JavascriptInterface
     fun loadComic(url: String) {
+        val ma = wm?.get() ?: return
+        if (ma.suppressLoadComic) return
         val base = UrlManager.comicDetailUrl
         val u = when {
             url.contains("/details/comic/") -> "$base${url.substringAfter("comic")}"
             url.contains("/comicContent/") -> "$base/${url.substringAfter("comicContent/").substringBefore("/")}/chapter/${url.substringAfterLast("/")}"
             else -> ""
         }
-        if (u.isNotEmpty()) wm?.get()?.loadHiddenUrl(u)
+        if (u.isNotEmpty()) ma.loadHiddenUrl(u)
     }
     @JavascriptInterface
     fun hideFab() {

@@ -1,14 +1,22 @@
-# CopyMangaWeb
+# CopyMangaWeb（Kotlin / Android）
 
-拷贝漫画第三方 Android 客户端，基于 WebView 封装官方 H5 页面，强化阅读器与下载体验。
+拷贝漫画第三方 **Android 原生**客户端，基于 WebView 封装官方 H5 页面，强化阅读器与下载体验。
 
 > Fork 自 [fumiama/copymangaweb](https://github.com/fumiama/copymangaweb)，在此基础上重构阅读器并持续改进。
+
+**跨平台 Flutter 版**（Android + iOS 侧载）在同仓库分支 [`flutter`](https://github.com/jimytao/copymanga/tree/flutter)，Tag 前缀 `flutter-v*`，说明见该分支 README。两版包名不同，可同时安装。
+
+| | 本仓库分支 `re_build`（本应用） | 分支 `flutter` |
+|--|-------------------------------|----------------|
+| 技术 | Kotlin + 双 WebView | Flutter + InAppWebView |
+| Release Tag | `v1.5.x` | `flutter-v1.0.0` 起 |
+| 变更记录 | [CHANGELOG.md](CHANGELOG.md) | Flutter 分支内 CHANGELOG |
 
 ---
 
 ## 安装
 
-在 [Releases](https://github.com/jimytao/copymanga/releases) 页面下载最新 APK，允许「安装未知来源应用」后直接安装。
+在 [Releases](https://github.com/jimytao/copymanga/releases) 页面下载 **`copymanga_x.y.z.apk`**（Tag 形如 `v1.5.13`，不要与 `flutter-v*` 搞混），允许「安装未知来源应用」后直接安装。
 
 - 最低系统要求：Android 6.0（API 23）
 - **首次安装本 fork 版本**：需先卸载原版或其他签名的旧版本，再安装（签名不同，无法直接覆盖）
