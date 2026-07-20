@@ -34,7 +34,8 @@ if (!window.__cm_dbltap) {
 
 /// 主页面：可见 WebView 浏览手机版站点，隐藏 WebView 用 PC UA 收图。
 /// 阅读器嵌在本页 Stack（非另开 opaque 路由）；收图时隐藏 WebView 以 1×1 置顶，
-/// 保证 requestAnimationFrame 不被节流。阅读器内切章不改动可见 WebView。
+/// 保证 requestAnimationFrame 不被节流。阅读器内切章不改动可见 H5（避免盖住时
+/// clickClass / 深链把表页打回首页）；退出时 resume 表页定时器以恢复二次进章。
 class BrowserPage extends StatefulWidget {
   const BrowserPage({super.key});
 
@@ -142,11 +143,15 @@ class _BrowserPageState extends State<BrowserPage> {
       } catch (_) {}
     }
     if (offline && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
           content: Text('当前无可用网络，已为你打开本地下载'),
-          duration: Duration(seconds: 3)));
-      Navigator.of(context)
-          .push(MaterialPageRoute(builder: (_) => const DownloadsPage()));
+          duration: Duration(seconds: 3),
+        ),
+      );
+      Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => const DownloadsPage()));
     }
   }
 
@@ -161,11 +166,13 @@ class _BrowserPageState extends State<BrowserPage> {
 
   UnmodifiableListView<UserScript> get _darkModeInitialScripts =>
       AppSettings.darkMode.value
-          ? UnmodifiableListView<UserScript>([_darkModeUserScript])
-          : UnmodifiableListView<UserScript>(const []);
+      ? UnmodifiableListView<UserScript>([_darkModeUserScript])
+      : UnmodifiableListView<UserScript>(const []);
 
   Future<void> _applyDarkModeToController(
-      InAppWebViewController? c, bool on) async {
+    InAppWebViewController? c,
+    bool on,
+  ) async {
     if (c == null) return;
     if (on) {
       await c.addUserScript(userScript: _darkModeUserScript);
@@ -241,6 +248,29 @@ class _BrowserPageState extends State<BrowserPage> {
     await c.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
   }
 
+  /// iOS 上阅读器盖住表页后 WKWebView 会节流 setInterval；安卓因全局 resumeTimers
+  /// 常被「顺便」救活。退出时恢复表页定时器，并把 preUrl 标成当前地址：
+  /// 切勿 reset 成空串——表页若仍停在 /comicContent/，空 preUrl 会让 i.js 再次
+  /// loadComic，阅读器会自动弹回来。
+  Future<void> _reviveVisibleWebView() async {
+    final c = _visibleController;
+    if (c == null) return;
+    try {
+      await c.resumeTimers();
+    } catch (_) {}
+    try {
+      await c.evaluateJavascript(
+        source: '''
+try {
+  if (typeof invoke !== "undefined") {
+    invoke.preUrl = location.href;
+  }
+} catch (e) {}
+''',
+      );
+    } catch (_) {}
+  }
+
   void _setHiddenOnTop(bool onTop) {
     if (_hiddenOnTop == onTop) return;
     if (mounted) {
@@ -280,19 +310,29 @@ class _BrowserPageState extends State<BrowserPage> {
         }
       },
     );
-    c.addJavaScriptHandler(handlerName: 'hideFab', callback: (_) {
-      if (_fabVisible && mounted) setState(() => _fabVisible = false);
-    });
+    c.addJavaScriptHandler(
+      handlerName: 'hideFab',
+      callback: (_) {
+        if (_fabVisible && mounted) setState(() => _fabVisible = false);
+      },
+    );
     c.addJavaScriptHandler(handlerName: 'enterProfile', callback: (_) {});
-    c.addJavaScriptHandler(handlerName: 'openSettings', callback: (_) {
-      if (mounted) {
-        Navigator.of(context)
-            .push(MaterialPageRoute(builder: (_) => const SettingsPage()));
-      }
-    });
-    c.addJavaScriptHandler(handlerName: 'toggleStatusBar', callback: (_) {
-      _toggleStatusBarRuntime();
-    });
+    c.addJavaScriptHandler(
+      handlerName: 'openSettings',
+      callback: (_) {
+        if (mounted) {
+          Navigator.of(
+            context,
+          ).push(MaterialPageRoute(builder: (_) => const SettingsPage()));
+        }
+      },
+    );
+    c.addJavaScriptHandler(
+      handlerName: 'toggleStatusBar',
+      callback: (_) {
+        _toggleStatusBarRuntime();
+      },
+    );
   }
 
   // ---- 隐藏 WebView 的 GM 桥（对应 JSHidden.kt）----
@@ -306,14 +346,20 @@ class _BrowserPageState extends State<BrowserPage> {
         _onChapterDataArrived(data);
       },
     );
-    c.addJavaScriptHandler(handlerName: 'setTitle', callback: (args) {
-      if (args.isNotEmpty) _comicTitle = args[0] as String;
-    });
-    c.addJavaScriptHandler(handlerName: 'setFab', callback: (args) {
-      if (args.isEmpty) return;
-      _comicStructureJson = args[0] as String;
-      if (mounted) setState(() => _fabVisible = true);
-    });
+    c.addJavaScriptHandler(
+      handlerName: 'setTitle',
+      callback: (args) {
+        if (args.isNotEmpty) _comicTitle = args[0] as String;
+      },
+    );
+    c.addJavaScriptHandler(
+      handlerName: 'setFab',
+      callback: (args) {
+        if (args.isEmpty) return;
+        _comicStructureJson = args[0] as String;
+        if (mounted) setState(() => _fabVisible = true);
+      },
+    );
     c.addJavaScriptHandler(
       handlerName: 'setLoadingDialog',
       callback: (args) {
@@ -401,13 +447,19 @@ class _BrowserPageState extends State<BrowserPage> {
       _readerOpen = false;
       _loadingChapter = false;
     });
-    // 等 Reader 从树移除并 removeListener 后再 dispose，避免监听器扫到已释放的 notifier
-    WidgetsBinding.instance.addPostFrameCallback((_) => n?.dispose());
+    // 等 Reader 从树移除后再 dispose，并唤醒被盖住期间节流的表页定时器
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      n?.dispose();
+      unawaited(_reviveVisibleWebView());
+    });
     _applyStatusBar();
   }
 
   /// 阅读器打开时先把隐藏 WebView 置顶再 load，避免在旧层级上启动收图。
-  void _loadHiddenForReader(String pcUrl, {required bool Function() stillValid}) {
+  void _loadHiddenForReader(
+    String pcUrl, {
+    required bool Function() stillValid,
+  }) {
     void load() {
       if (!mounted || !stillValid()) return;
       unawaited(_loadHiddenUrl(pcUrl));
@@ -422,7 +474,9 @@ class _BrowserPageState extends State<BrowserPage> {
     }
   }
 
-  void _requestChapter(String mobileUrl) {
+  void _requestChapter(String mobileUrl, {bool? goNext}) {
+    // 故意不在此处同步表 H5：阅读器盖住时 clickClass/深链都会把可见页打乱（安卓尤甚，关阅读器像回首页）。
+    // goNext 仍由 ReaderPage 传入，供日后更安全的退出时同步使用。
     if (_prefetchedData != null && _prefetchedForUrl == mobileUrl) {
       final data = _prefetchedData!;
       _prefetchedData = null;
@@ -440,19 +494,26 @@ class _BrowserPageState extends State<BrowserPage> {
     // 不再挂接可能已节流/僵死的预取：用户显式切章时强制重启隐藏 WebView
     _prefetchTargetUrl = null;
     _armStallWatch();
-    _loadHiddenForReader(pc, stillValid: () => _pendingOpen && _pendingUrl == mobileUrl);
+    _loadHiddenForReader(
+      pc,
+      stillValid: () => _pendingOpen && _pendingUrl == mobileUrl,
+    );
   }
 
   void _prefetchChapter(String mobileUrl) {
     if (_pendingOpen) return;
-    if (_prefetchTargetUrl == mobileUrl || _prefetchedForUrl == mobileUrl) return;
+    if (_prefetchTargetUrl == mobileUrl || _prefetchedForUrl == mobileUrl) {
+      return;
+    }
     final pc = UrlManager.toPcUrl(mobileUrl);
     if (pc.isEmpty) return;
     _prefetchTargetUrl = mobileUrl;
     _prefetchedData = null;
     _prefetchedForUrl = null;
-    _loadHiddenForReader(pc,
-        stillValid: () => !_pendingOpen && _prefetchTargetUrl == mobileUrl);
+    _loadHiddenForReader(
+      pc,
+      stillValid: () => !_pendingOpen && _prefetchTargetUrl == mobileUrl,
+    );
   }
 
   void _setLoading(bool show) {
@@ -485,9 +546,12 @@ class _BrowserPageState extends State<BrowserPage> {
         _readerLoading.value = null;
         if (mounted) {
           setState(() => _loadingChapter = false);
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
               content: Text('收图停滞，请检查网络或到设置里换源后重试'),
-              duration: Duration(seconds: 3)));
+              duration: Duration(seconds: 3),
+            ),
+          );
         }
       }
     });
@@ -512,16 +576,22 @@ class _BrowserPageState extends State<BrowserPage> {
     try {
       groups = ComicGroup.parseList(json);
     } catch (_) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('章节列表解析失败'), duration: Duration(seconds: 2)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('章节列表解析失败'),
+          duration: Duration(seconds: 2),
+        ),
+      );
       return;
     }
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => DownloadSelectPage(
-        comicName: _comicTitle.isEmpty ? '未命名漫画' : _comicTitle,
-        groups: groups,
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => DownloadSelectPage(
+          comicName: _comicTitle.isEmpty ? '未命名漫画' : _comicTitle,
+          groups: groups,
+        ),
       ),
-    ));
+    );
   }
 
   @override
@@ -535,36 +605,42 @@ class _BrowserPageState extends State<BrowserPage> {
   }
 
   InAppWebViewSettings get _hiddenSettings => InAppWebViewSettings(
-        userAgent: pcUserAgent,
-        javaScriptEnabled: true,
-        useShouldOverrideUrlLoading: true,
-        useWideViewPort: true,
-        loadWithOverviewMode: true,
-        underPageBackgroundColor:
-            AppSettings.darkMode.value ? Colors.black : Colors.white,
-      );
+    userAgent: pcUserAgent,
+    javaScriptEnabled: true,
+    useShouldOverrideUrlLoading: true,
+    useWideViewPort: true,
+    loadWithOverviewMode: true,
+    transparentBackground: true,
+    underPageBackgroundColor: AppSettings.darkMode.value
+        ? Colors.black
+        : Colors.white,
+  );
 
   InAppWebViewSettings get _visibleSettings => InAppWebViewSettings(
-        javaScriptEnabled: true,
-        useShouldOverrideUrlLoading: true,
-        mediaPlaybackRequiresUserGesture: true,
-        supportZoom: false,
-        allowsBackForwardNavigationGestures: false,
-        contentInsetAdjustmentBehavior:
-            ScrollViewContentInsetAdjustmentBehavior.NEVER,
-        disableInputAccessoryView: true,
-        // WKWebView 未绘页面前的底色，暗色时避免白闪
-        underPageBackgroundColor:
-            AppSettings.darkMode.value ? Colors.black : Colors.white,
-      );
+    javaScriptEnabled: true,
+    useShouldOverrideUrlLoading: true,
+    mediaPlaybackRequiresUserGesture: true,
+    supportZoom: false,
+    allowsBackForwardNavigationGestures: false,
+    contentInsetAdjustmentBehavior:
+        ScrollViewContentInsetAdjustmentBehavior.NEVER,
+    disableInputAccessoryView: true,
+    // 透明底 + 跟壳同色，减轻 iOS WKWebView 启动/切页白闪
+    transparentBackground: true,
+    underPageBackgroundColor: AppSettings.darkMode.value
+        ? Colors.black
+        : Colors.white,
+  );
 
   Future<void> _injectHidden(InAppWebViewController controller) async {
     final gen = _hiddenInjectGen;
     await Future.delayed(const Duration(milliseconds: 500));
     if (gen != _hiddenInjectGen) return;
     await controller.evaluateJavascript(
-        source: "window.__CM_SOURCE_PROFILE='${AppSettings.sourceProfile}';"
-            "window.__CM_ACTIVE_URL='${UrlManager.activeUrl}';");
+      source:
+          "window.__CM_SOURCE_PROFILE='${AppSettings.sourceProfile}';"
+          "window.__CM_ACTIVE_URL='${UrlManager.activeUrl}';",
+    );
     if (gen != _hiddenInjectGen) return;
     await controller.evaluateJavascript(source: _gmShim);
     if (gen != _hiddenInjectGen) return;
@@ -649,8 +725,9 @@ class _BrowserPageState extends State<BrowserPage> {
                       ),
                     Positioned.fill(
                       child: InAppWebView(
-                        initialUrlRequest:
-                            URLRequest(url: WebUri(UrlManager.activeUrl)),
+                        initialUrlRequest: URLRequest(
+                          url: WebUri(UrlManager.activeUrl),
+                        ),
                         initialSettings: _visibleSettings,
                         initialUserScripts: _darkModeInitialScripts,
                         onWebViewCreated: (controller) {
@@ -676,12 +753,14 @@ class _BrowserPageState extends State<BrowserPage> {
                             JsAlertResponse(handledByClient: true),
                         onJsConfirm: (controller, request) async =>
                             JsConfirmResponse(
-                                handledByClient: true,
-                                action: JsConfirmResponseAction.CONFIRM),
+                              handledByClient: true,
+                              action: JsConfirmResponseAction.CONFIRM,
+                            ),
                         onJsPrompt: (controller, request) async =>
                             JsPromptResponse(
-                                handledByClient: true,
-                                action: JsPromptResponseAction.CONFIRM),
+                              handledByClient: true,
+                              action: JsPromptResponseAction.CONFIRM,
+                            ),
                       ),
                     ),
                     if (_webProgress < 100 && !_readerOpen)
@@ -690,7 +769,9 @@ class _BrowserPageState extends State<BrowserPage> {
                         left: 0,
                         right: 0,
                         child: LinearProgressIndicator(
-                            value: _webProgress / 100, minHeight: 2),
+                          value: _webProgress / 100,
+                          minHeight: 2,
+                        ),
                       ),
                     if (_loadingChapter && !_readerOpen)
                       Positioned.fill(
@@ -705,9 +786,11 @@ class _BrowserPageState extends State<BrowserPage> {
                                   children: [
                                     const CircularProgressIndicator(),
                                     const SizedBox(height: 16),
-                                    Text(_loadingProgress.isEmpty
-                                        ? '正在收集图片…'
-                                        : '收集图片 $_loadingProgress'),
+                                    Text(
+                                      _loadingProgress.isEmpty
+                                          ? '正在收集图片…'
+                                          : '收集图片 $_loadingProgress',
+                                    ),
                                   ],
                                 ),
                               ),
@@ -752,8 +835,14 @@ class _BrowserPageState extends State<BrowserPage> {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final stackH = _fabVisible ? fabSize * 2 + gap : fabSize;
-          final maxX = (constraints.maxWidth - fabSize).clamp(0.0, double.infinity);
-          final maxY = (constraints.maxHeight - stackH).clamp(0.0, double.infinity);
+          final maxX = (constraints.maxWidth - fabSize).clamp(
+            0.0,
+            double.infinity,
+          );
+          final maxY = (constraints.maxHeight - stackH).clamp(
+            0.0,
+            double.infinity,
+          );
           // 默认：右侧、约 28% 高度处（偏上，避开底栏与常见网页按钮）
           final def = Offset(maxX - 8, constraints.maxHeight * 0.28);
           final raw = _fabOffset ?? def;
@@ -813,8 +902,11 @@ class _BrowserPageState extends State<BrowserPage> {
                           tooltip: '我的下载（可拖动）',
                           onPressed: () {
                             if (_fabDragging || _suppressFabTap) return;
-                            Navigator.of(context).push(MaterialPageRoute(
-                                builder: (_) => const DownloadsPage()));
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => const DownloadsPage(),
+                              ),
+                            );
                           },
                           child: const Icon(Icons.folder_open),
                         ),

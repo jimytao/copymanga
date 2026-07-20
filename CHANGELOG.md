@@ -5,6 +5,16 @@
 
 ---
 
+## 2026-07-20 — v1.0.5：退出恢复表页 + 详情返回 + 去白闪
+
+- **取消阅读器内 clickClass 同步**：盖住表页时点站内按钮会把可见 H5 打乱（安卓关阅读器像回首页）；切章只走隐藏 WebView / 预取。
+- **退出唤醒表页**：`_closeReader` 后 `resumeTimers()`，并把 `invoke.preUrl = location.href`（禁止 reset 成空，否则仍停在章节 URL 时会再次 loadComic、阅读器自动弹回）。
+- **详情/章节页网页返回**：`i.js` 捕获 `van-nav-bar__left`，优先 `history.back()`，未动则回落 `lastBrowseUrl`，避免站点 fallback 冲到首页顶部。
+- **白闪**：可见/隐藏 WebView 启用 `transparentBackground`，底色跟 App 壳。
+- **版本**：`1.0.5+6`。
+
+---
+
 ## 2026-07-19 — v1.0.4：撤销表 H5 切章同步
 
 - **切章解耦**：阅读器内上一章/下一章只驱动隐藏 WebView 收图或使用预取数据，不再导航可见 H5。

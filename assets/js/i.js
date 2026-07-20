@@ -3,6 +3,8 @@ if (typeof (loaded) == "undefined") {
     var loaded = true;
     var invoke = {
         preUrl: "",
+        lastBrowseUrl: "",
+        _backFix: false,
         hideRanobeTab: function () {
             var tabs = document.getElementsByClassName("van-tabbar-item");
             for (i = 0; i < tabs.length; i++) {
@@ -37,6 +39,40 @@ if (typeof (loaded) == "undefined") {
         },
         resetPreUrl: function () { this.preUrl = ""; },
         loadChapter: function () { this.clickClassCenter("comicContentPopupImageItem", 0); GM.loadComic(location.href); },
+        rememberBrowse: function (url) {
+            // 记录「非详情/非章节」的浏览位，供详情页返回时回落
+            if (url.indexOf("/details/comic/") < 0 && url.indexOf("/comicContent/") < 0) {
+                this.lastBrowseUrl = url;
+            }
+        },
+        installBackFix: function () {
+            // 站点顶栏返回在 history.state 异常时会 replace 到首页；
+            // 详情/章节页捕获后改为 history.back，失败再回落上次浏览 URL。
+            if (this._backFix) return;
+            this._backFix = true;
+            document.addEventListener("click", function (e) {
+                var href = location.href;
+                var onDetails = href.indexOf("/details/comic/") >= 0;
+                var onChapter = href.indexOf("/comicContent/") >= 0;
+                if (!onDetails && !onChapter) return;
+                var t = e.target;
+                if (!t || !t.closest) return;
+                if (!t.closest(".van-nav-bar__left")) return;
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                var from = href;
+                if (window.history.length > 1) {
+                    history.back();
+                    // SPA 若实际没动（或又被站点打回详情/章节），回落到浏览位
+                    setTimeout(function () {
+                        if (location.href !== from) return;
+                        if (invoke.lastBrowseUrl) location.href = invoke.lastBrowseUrl;
+                    }, 280);
+                    return;
+                }
+                if (invoke.lastBrowseUrl) location.href = invoke.lastBrowseUrl;
+            }, true);
+        },
         injectAppSettings: function () {
             if (document.getElementById('_app_cfg')) return;
             var cell = document.createElement('div');
@@ -56,6 +92,8 @@ if (typeof (loaded) == "undefined") {
     };
     function modify() {
         var url = location.href;
+        invoke.rememberBrowse(url);
+        invoke.installBackFix();
         GM.hideFab();
         if (url.endsWith("/index")) {
             invoke.pinTitle();

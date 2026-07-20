@@ -29,7 +29,9 @@ class ReaderPage extends StatefulWidget {
 
   final ValueNotifier<ChapterData> dataNotifier;
   final ValueNotifier<String?> loadingText;
-  final void Function(String mobileUrl)? onRequestChapter;
+
+  /// [goNext] 为相邻切章方向；离线本地切换可不传。
+  final void Function(String mobileUrl, {bool? goNext})? onRequestChapter;
   final void Function(String mobileUrl)? onPrefetch;
 
   /// 嵌在 BrowserPage Stack 时由外层关闭；走 Navigator.push 时可空（系统返回）
@@ -104,8 +106,11 @@ class _ReaderPageState extends State<ReaderPage> {
   void _turnPage(int delta) {
     final target = (_page + delta).clamp(1, _count);
     if (target != _page && _pageController.hasClients) {
-      _pageController.animateToPage(target - 1,
-          duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
+      _pageController.animateToPage(
+        target - 1,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+      );
     }
   }
 
@@ -151,10 +156,12 @@ class _ReaderPageState extends State<ReaderPage> {
     final saved = prefs.getInt(key) ?? 0;
     if (saved >= 2 && saved < count) {
       _jumpTo(saved);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('已跳转至上次阅读的第 $saved 页'),
-        duration: const Duration(seconds: 2),
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('已跳转至上次阅读的第 $saved 页'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
     }
   }
 
@@ -256,10 +263,11 @@ class _ReaderPageState extends State<ReaderPage> {
     final url = goNext ? _data.nextChapterUrl : _data.previousChapterUrl;
     if (url == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('已经到头了~'), duration: Duration(seconds: 1)));
+        const SnackBar(content: Text('已经到头了~'), duration: Duration(seconds: 1)),
+      );
       return;
     }
-    widget.onRequestChapter?.call(url);
+    widget.onRequestChapter?.call(url, goNext: goNext);
   }
 
   /// 翻页到头继续翻 → 提示一次 → 再翻切章（对应原生版 doubleTapToast 逻辑）
@@ -298,7 +306,8 @@ class _ReaderPageState extends State<ReaderPage> {
   void _toast(String msg) {
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(msg), duration: const Duration(seconds: 1)));
+      SnackBar(content: Text(msg), duration: const Duration(seconds: 1)),
+    );
   }
 
   // ---- 页码跳转弹窗（对应原生版 showPageInputDialog）----
@@ -317,10 +326,14 @@ class _ReaderPageState extends State<ReaderPage> {
           onSubmitted: (v) => Navigator.pop(c, int.tryParse(v)),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(c), child: const Text('取消')),
           TextButton(
-              onPressed: () => Navigator.pop(c, int.tryParse(controller.text)),
-              child: const Text('跳转')),
+            onPressed: () => Navigator.pop(c),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(c, int.tryParse(controller.text)),
+            child: const Text('跳转'),
+          ),
         ],
       ),
     );
@@ -356,14 +369,21 @@ class _ReaderPageState extends State<ReaderPage> {
 
   void _cycleReadMode() {
     final currentPage = _page;
-    final next = switch (_readMode) { 'h' => 'v', 'v' => 'w', _ => 'h' };
+    final next = switch (_readMode) {
+      'h' => 'v',
+      'v' => 'w',
+      _ => 'h',
+    };
     AppSettings.setReadMode(next);
     setState(() => _readMode = next);
     WidgetsBinding.instance.addPostFrameCallback((_) => _jumpTo(currentPage));
   }
 
-  String get _modeLabel =>
-      switch (_readMode) { 'v' => '纵向', 'w' => '条漫', _ => '横向' };
+  String get _modeLabel => switch (_readMode) {
+    'v' => '纵向',
+    'w' => '条漫',
+    _ => '横向',
+  };
 
   // ---- 信息栏时钟（对应原生版 TimeThread）----
 
@@ -397,8 +417,10 @@ class _ReaderPageState extends State<ReaderPage> {
     if (_barsVisible) {
       _updateClock();
       _clockTimer?.cancel();
-      _clockTimer =
-          Timer.periodic(const Duration(seconds: 22), (_) => _updateClock());
+      _clockTimer = Timer.periodic(
+        const Duration(seconds: 22),
+        (_) => _updateClock(),
+      );
     } else {
       _clockTimer?.cancel();
     }
@@ -422,9 +444,12 @@ class _ReaderPageState extends State<ReaderPage> {
   Widget _buildImage(int index, {BoxFit fit = BoxFit.contain}) {
     final src = _data.imgUrls[index];
     if (_data.isLocal) {
-      return Image.file(File(src), fit: fit,
-          errorBuilder: (c, e, s) =>
-              const Icon(Icons.broken_image, color: Colors.white38));
+      return Image.file(
+        File(src),
+        fit: fit,
+        errorBuilder: (c, e, s) =>
+            const Icon(Icons.broken_image, color: Colors.white38),
+      );
     }
     return RetryNetworkImage(url: wrapResolution(src), fit: fit);
   }
@@ -432,7 +457,8 @@ class _ReaderPageState extends State<ReaderPage> {
   Widget _buildViewer() {
     if (_count <= 0) {
       return const Center(
-          child: Text('本章无图片', style: TextStyle(color: Colors.white54)));
+        child: Text('本章无图片', style: TextStyle(color: Colors.white54)),
+      );
     }
     if (_isWebtoon) {
       return NotificationListener<OverscrollNotification>(
@@ -476,15 +502,18 @@ class _ReaderPageState extends State<ReaderPage> {
               child: GestureDetector(
                 onTap: _showPageInputDialog,
                 child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.black45,
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Text('$_page/$_count',
-                      style:
-                          const TextStyle(color: Colors.white70, fontSize: 12)),
+                  child: Text(
+                    '$_page/$_count',
+                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                  ),
                 ),
               ),
             ),
@@ -498,9 +527,13 @@ class _ReaderPageState extends State<ReaderPage> {
                   color: Colors.black45,
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Text('下载中 $_downloadProgress',
-                    style: const TextStyle(
-                        color: Colors.lightGreenAccent, fontSize: 12)),
+                child: Text(
+                  '下载中 $_downloadProgress',
+                  style: const TextStyle(
+                    color: Colors.lightGreenAccent,
+                    fontSize: 12,
+                  ),
+                ),
               ),
             ),
           if (_barsVisible) _buildBottomBar(),
@@ -551,21 +584,29 @@ class _ReaderPageState extends State<ReaderPage> {
                     IconButton(
                       tooltip: '退出阅读',
                       padding: EdgeInsets.zero,
-                      constraints:
-                          const BoxConstraints(minWidth: 36, minHeight: 36),
-                      icon: const Icon(Icons.close,
-                          color: Colors.white, size: 22),
+                      constraints: const BoxConstraints(
+                        minWidth: 36,
+                        minHeight: 36,
+                      ),
+                      icon: const Icon(
+                        Icons.close,
+                        color: Colors.white,
+                        size: 22,
+                      ),
                       onPressed: widget.onClose,
                     ),
                   Expanded(
-                    child: Text(_data.title,
-                        style: const TextStyle(color: Colors.white),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis),
+                    child: Text(
+                      _data.title,
+                      style: const TextStyle(color: Colors.white),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                  Text(_clockText,
-                      style: const TextStyle(
-                          color: Colors.white54, fontSize: 12)),
+                  Text(
+                    _clockText,
+                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                  ),
                 ],
               ),
               Row(
@@ -580,9 +621,7 @@ class _ReaderPageState extends State<ReaderPage> {
                     child: _count <= 0
                         ? const SizedBox.shrink()
                         : Slider(
-                            value: _page
-                                .toDouble()
-                                .clamp(1, _count.toDouble()),
+                            value: _page.toDouble().clamp(1, _count.toDouble()),
                             min: 1,
                             max: _count.toDouble(),
                             divisions: _count > 1 ? _count - 1 : null,
@@ -617,8 +656,9 @@ class _ReaderPageState extends State<ReaderPage> {
                               final p = _page;
                               AppSettings.setR2l(!_r2l);
                               setState(() => _r2l = !_r2l);
-                              WidgetsBinding.instance
-                                  .addPostFrameCallback((_) => _jumpTo(p));
+                              WidgetsBinding.instance.addPostFrameCallback(
+                                (_) => _jumpTo(p),
+                              );
                             },
                     ),
                   ),
@@ -683,10 +723,12 @@ class _ReaderToolBtn extends StatelessWidget {
           children: [
             Icon(icon, size: 20, color: color),
             const SizedBox(height: 2),
-            Text(label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: color, fontSize: 11)),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: color, fontSize: 11),
+            ),
           ],
         ),
       ),
