@@ -1,10 +1,8 @@
-## Summary
-- 退出阅读器后恢复表页定时器，修复 iOS 无法再次点章进阅读器
-- 退出时把 preUrl 标成当前地址，避免仍停在章节页时阅读器自动弹回
-- 取消阅读器内对表 H5 的 clickClass 同步，避免安卓关阅读器像跳回首页
-- 详情/章节页网页返回优先 history.back，失败回落上次浏览位
-- WebView 透明底减轻启动白闪
+## Flutter v1.0.6
 
-## Assets
-- Android split APK（armeabi-v7a / arm64-v8a / x86_64）
-- unsigned IPA（Actions 构建后自动挂载）
+- 修复退出阅读器后有时无法再次进章（改由 Dart 监听可见页 URL，不依赖可能假死的表页定时器）
+- 退出时中止隐藏 WebView 上的预取/切章收图，避免状态残留
+- 进章立即显示收集进度
+- 修复 iOS 关闭阅读器后表页跳回首页（可见 WebView 槽位稳定 + GlobalKey）
+
+Android 请按 CPU 架构安装（真机优先 `arm64-v8a`）。iOS 用 Sideloadly 等对 unsigned IPA 重签侧载（免费账号约 7 天）。

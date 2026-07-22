@@ -35,7 +35,8 @@ if (!window.__cm_dbltap) {
 /// 主页面：可见 WebView 浏览手机版站点，隐藏 WebView 用 PC UA 收图。
 /// 阅读器嵌在本页 Stack（非另开 opaque 路由）；收图时隐藏 WebView 以 1×1 置顶，
 /// 保证 requestAnimationFrame 不被节流。阅读器内切章不改动可见 H5（避免盖住时
-/// clickClass / 深链把表页打回首页）；退出时 resume 表页定时器以恢复二次进章。
+/// clickClass / 深链把表页打回首页）。二次进章以 Dart 侧 URL 监听为主（不依赖
+/// 可能被盖住后假死的 i.js setInterval）；退出时中止隐藏 WebView 并 resume 表页。
 class BrowserPage extends StatefulWidget {
   const BrowserPage({super.key});
 
@@ -68,12 +69,21 @@ class _BrowserPageState extends State<BrowserPage> {
   ChapterData? _prefetchedData;
   String? _prefetchedForUrl;
 
+  /// 可见页已处理过的 URL（防 Dart/i.js 双触发；退出后同页不自动弹回阅读器）
+  String? _lastVisibleHandledUrl;
+
   /// 隐藏 WebView 注入代数：快速连切时丢弃过期的 500ms 延迟注入
   int _hiddenInjectGen = 0;
+
+  /// 隐藏 WebView 导航序号：避免 abort(about:blank) 与新开章 loadUrl 竞态互盖
+  int _hiddenLoadSeq = 0;
 
   /// 阅读器打开且正在收图/预取时，把隐藏 WebView 提到 Stack 顶（1×1）避免 rAF 被节流
   bool _hiddenOnTop = false;
   final GlobalKey _hiddenWebViewKey = GlobalKey();
+  /// 可见 WebView 必须稳定：隐藏页置顶/还原时若槽位前插且无 Key，iOS 会重建并
+  /// 重新加载 initialUrl（表现为关阅读器跳回首页）；Android 有时幸免。
+  final GlobalKey _visibleWebViewKey = GlobalKey();
   bool _hiddenHandlersRegistered = false;
   bool _visibleHandlersRegistered = false;
 
@@ -240,23 +250,97 @@ class _BrowserPageState extends State<BrowserPage> {
   Future<void> _loadHiddenUrl(String url) async {
     final c = _hiddenController;
     if (c == null) return;
+    final seq = ++_hiddenLoadSeq;
     _hiddenInjectGen++;
     try {
       await c.stopLoading();
       await c.resumeTimers();
     } catch (_) {}
+    if (seq != _hiddenLoadSeq) return;
     await c.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
+  }
+
+  /// 退出阅读器 / 停滞时打断隐藏页收图，避免预取或切章残留回调污染状态。
+  Future<void> _abortHiddenLoad() async {
+    final c = _hiddenController;
+    if (c == null) return;
+    final seq = ++_hiddenLoadSeq;
+    _hiddenInjectGen++;
+    try {
+      await c.stopLoading();
+    } catch (_) {}
+    if (seq != _hiddenLoadSeq) return;
+    try {
+      await c.loadUrl(urlRequest: URLRequest(url: WebUri('about:blank')));
+    } catch (_) {}
+  }
+
+  void _clearPrefetchState() {
+    _prefetchTargetUrl = null;
+    _prefetchedData = null;
+    _prefetchedForUrl = null;
+  }
+
+  /// 从可见页 URL 打开章节（i.js loadComic 与 Dart 历史监听共用）。
+  void _beginOpenChapter(String url) {
+    final hidden = UrlManager.toHiddenUrl(url);
+    if (hidden.isEmpty) return;
+    if (_readerOpen || _pendingOpen) return;
+    _pendingOpen = true;
+    _pendingUrl = url;
+    _lastVisibleHandledUrl = url;
+    _clearPrefetchState();
+    unawaited(_loadHiddenUrl(hidden));
+    // 立即出加载框：不依赖 h.js；也避免表页定时器假死时「点了没反应」
+    _setLoading(true);
+  }
+
+  void _beginLoadComicMeta(String url) {
+    if (_pendingOpen || _readerOpen) return;
+    final hidden = UrlManager.toHiddenUrl(url);
+    if (hidden.isEmpty) return;
+    _lastVisibleHandledUrl = url;
+    unawaited(_loadHiddenUrl(hidden));
+  }
+
+  /// SPA 切页不走 onLoadStop；用历史更新驱动进章，不依赖 i.js setInterval。
+  void _onVisibleUrl(WebUri? uri) {
+    if (uri == null) return;
+    final url = uri.toString();
+    if (url.isEmpty || url == 'about:blank') return;
+    if (url == _lastVisibleHandledUrl) return;
+
+    if (url.contains('/comicContent/')) {
+      _lastVisibleHandledUrl = url;
+      if (_readerOpen || _pendingOpen) return;
+      _beginOpenChapter(url);
+      return;
+    }
+    if (url.contains('/details/comic/')) {
+      _lastVisibleHandledUrl = url;
+      if (_pendingOpen || _readerOpen) return;
+      _beginLoadComicMeta(url);
+      return;
+    }
+    _lastVisibleHandledUrl = url;
   }
 
   /// iOS 上阅读器盖住表页后 WKWebView 会节流 setInterval；安卓因全局 resumeTimers
   /// 常被「顺便」救活。退出时恢复表页定时器，并把 preUrl 标成当前地址：
   /// 切勿 reset 成空串——表页若仍停在 /comicContent/，空 preUrl 会让 i.js 再次
-  /// loadComic，阅读器会自动弹回来。
+  /// loadComic，阅读器会自动弹回来。二次进章主要靠 [_onVisibleUrl]。
   Future<void> _reviveVisibleWebView() async {
     final c = _visibleController;
     if (c == null) return;
     try {
       await c.resumeTimers();
+    } catch (_) {}
+    try {
+      final current = await c.getUrl();
+      final href = current?.toString();
+      if (href != null && href.isNotEmpty) {
+        _lastVisibleHandledUrl = href;
+      }
     } catch (_) {}
     try {
       await c.evaluateJavascript(
@@ -268,6 +352,10 @@ try {
 } catch (e) {}
 ''',
       );
+    } catch (_) {}
+    // 再踢一次定时器：部分机型单次 resume 不足以恢复被盖住期间的 setInterval
+    try {
+      await c.resumeTimers();
     } catch (_) {}
   }
 
@@ -289,24 +377,13 @@ try {
       handlerName: 'loadComic',
       callback: (args) {
         final url = args.isNotEmpty ? args[0] as String : '';
-        final hidden = UrlManager.toHiddenUrl(url);
-        if (hidden.isEmpty) return;
+        if (url.isEmpty) return;
         if (url.contains('/comicContent/')) {
-          // 阅读器内切章由 _requestChapter 驱动，不接受表页重复触发
-          if (_readerOpen || _pendingOpen) return;
-          // 章节页：收图并打开阅读器
-          _pendingOpen = true;
-          _pendingUrl = url;
-          _prefetchTargetUrl = null;
-          _prefetchedData = null;
-          _prefetchedForUrl = null;
-          unawaited(_loadHiddenUrl(hidden));
-          // 页面可能一直打不开、h.js 根本没机会弹加载框，也要有停滞守护兜底
-          _armStallWatch();
-        } else {
+          // 阅读器内切章由 _requestChapter 驱动；与 Dart URL 监听共用进章入口
+          _beginOpenChapter(url);
+        } else if (url.contains('/details/comic/')) {
           // 详情页：抓章节结构（setFab）。若正在为用户收图，禁止顶掉隐藏 WebView
-          if (_pendingOpen || _readerOpen) return;
-          unawaited(_loadHiddenUrl(hidden));
+          _beginLoadComicMeta(url);
         }
       },
     );
@@ -366,6 +443,8 @@ try {
         final show = args.isNotEmpty && args[0] == true;
         // 预取静默：不弹加载框
         if (!_pendingOpen && _prefetchTargetUrl != null) return;
+        // 已退出且无用户请求：忽略迟到回调，避免幽灵遮罩 / 误清状态
+        if (!_pendingOpen && !_readerOpen) return;
         // h.js 在 loadChapter 前会先 setLoadingDialog(false)。若用户已改求另一章，
         // 旧章迟到的 false 会拆掉新章加载框并 cancel 停滞守护——此处忽略，
         // 成功关闭只由匹配的 loadChapter 路径负责。
@@ -379,7 +458,7 @@ try {
         if (args.length < 2) return;
         // 预取静默：也不刷新停滞计时，避免预取进度“续命”用户可见的等待
         if (!_pendingOpen && _prefetchTargetUrl != null) return;
-        if (!_pendingOpen && !_loadingChapter && !_readerOpen) return;
+        if (!_pendingOpen && !_readerOpen) return;
         _lastProgressAt = DateTime.now();
         final text = '${args[0]}/${args[1]}';
         if (_readerOpen) {
@@ -402,9 +481,7 @@ try {
       if (!_uuidMatches(_pendingUrl, data)) return;
       _pendingOpen = false;
       _pendingUrl = null;
-      _prefetchedData = null;
-      _prefetchedForUrl = null;
-      _prefetchTargetUrl = null;
+      _clearPrefetchState();
       _setHiddenOnTop(false);
       _setLoading(false);
       _readerLoading.value = null;
@@ -438,15 +515,15 @@ try {
     _readerLoading.value = null;
     _pendingOpen = false;
     _pendingUrl = null;
-    _prefetchTargetUrl = null;
-    _prefetchedData = null;
-    _prefetchedForUrl = null;
+    _clearPrefetchState();
     _stallTimer?.cancel();
     _setHiddenOnTop(false);
     setState(() {
       _readerOpen = false;
       _loadingChapter = false;
     });
+    // 立刻打断隐藏页上可能仍在跑的预取/切章收图
+    unawaited(_abortHiddenLoad());
     // 等 Reader 从树移除后再 dispose，并唤醒被盖住期间节流的表页定时器
     WidgetsBinding.instance.addPostFrameCallback((_) {
       n?.dispose();
@@ -479,9 +556,7 @@ try {
     // goNext 仍由 ReaderPage 传入，供日后更安全的退出时同步使用。
     if (_prefetchedData != null && _prefetchedForUrl == mobileUrl) {
       final data = _prefetchedData!;
-      _prefetchedData = null;
-      _prefetchedForUrl = null;
-      _prefetchTargetUrl = null;
+      _clearPrefetchState();
       _setHiddenOnTop(false);
       _openOrSwapReader(data);
       return;
@@ -541,9 +616,10 @@ try {
         t.cancel();
         _pendingOpen = false;
         _pendingUrl = null;
-        _prefetchTargetUrl = null;
+        _clearPrefetchState();
         _setHiddenOnTop(false);
         _readerLoading.value = null;
+        unawaited(_abortHiddenLoad());
         if (mounted) {
           setState(() => _loadingChapter = false);
           ScaffoldMessenger.of(context).showSnackBar(
@@ -679,6 +755,48 @@ try {
     );
   }
 
+  Widget _buildVisibleWebView() {
+    return InAppWebView(
+      key: _visibleWebViewKey,
+      initialUrlRequest: URLRequest(url: WebUri(UrlManager.activeUrl)),
+      initialSettings: _visibleSettings,
+      initialUserScripts: _darkModeInitialScripts,
+      onWebViewCreated: (controller) {
+        _visibleController = controller;
+        if (!_visibleHandlersRegistered) {
+          _visibleHandlersRegistered = true;
+          _registerVisibleHandlers(controller);
+        }
+      },
+      shouldOverrideUrlLoading: (controller, action) async =>
+          _allowNavigation(action.request.url),
+      onLoadStart: (controller, url) => _injectDarkModeIfNeeded(controller),
+      onUpdateVisitedHistory: (controller, url, _) {
+        _onVisibleUrl(url);
+      },
+      onProgressChanged: (controller, progress) {
+        if (mounted) setState(() => _webProgress = progress);
+        if (progress > 0 && progress <= 10) {
+          _injectDarkModeIfNeeded(controller);
+        }
+      },
+      onLoadStop: (controller, url) {
+        _onVisibleUrl(url);
+        unawaited(_injectVisible(controller));
+      },
+      onJsAlert: (controller, request) async =>
+          JsAlertResponse(handledByClient: true),
+      onJsConfirm: (controller, request) async => JsConfirmResponse(
+        handledByClient: true,
+        action: JsConfirmResponseAction.CONFIRM,
+      ),
+      onJsPrompt: (controller, request) async => JsPromptResponse(
+        handledByClient: true,
+        action: JsPromptResponseAction.CONFIRM,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!_assetsLoaded) {
@@ -719,50 +837,13 @@ try {
                 ),
                 child: Stack(
                   children: [
-                    if (!_hiddenOnTop)
-                      Positioned.fill(
-                        child: IgnorePointer(child: _buildHiddenWebView()),
-                      ),
+                    // 槽位 0 固定占位：隐藏页置顶时用空壳占着，避免可见 WebView 前移被重建
                     Positioned.fill(
-                      child: InAppWebView(
-                        initialUrlRequest: URLRequest(
-                          url: WebUri(UrlManager.activeUrl),
-                        ),
-                        initialSettings: _visibleSettings,
-                        initialUserScripts: _darkModeInitialScripts,
-                        onWebViewCreated: (controller) {
-                          _visibleController = controller;
-                          if (!_visibleHandlersRegistered) {
-                            _visibleHandlersRegistered = true;
-                            _registerVisibleHandlers(controller);
-                          }
-                        },
-                        shouldOverrideUrlLoading: (controller, action) async =>
-                            _allowNavigation(action.request.url),
-                        onLoadStart: (controller, url) =>
-                            _injectDarkModeIfNeeded(controller),
-                        onProgressChanged: (controller, progress) {
-                          if (mounted) setState(() => _webProgress = progress);
-                          if (progress > 0 && progress <= 10) {
-                            _injectDarkModeIfNeeded(controller);
-                          }
-                        },
-                        onLoadStop: (controller, url) =>
-                            _injectVisible(controller),
-                        onJsAlert: (controller, request) async =>
-                            JsAlertResponse(handledByClient: true),
-                        onJsConfirm: (controller, request) async =>
-                            JsConfirmResponse(
-                              handledByClient: true,
-                              action: JsConfirmResponseAction.CONFIRM,
-                            ),
-                        onJsPrompt: (controller, request) async =>
-                            JsPromptResponse(
-                              handledByClient: true,
-                              action: JsPromptResponseAction.CONFIRM,
-                            ),
-                      ),
+                      child: _hiddenOnTop
+                          ? const IgnorePointer(child: SizedBox.shrink())
+                          : IgnorePointer(child: _buildHiddenWebView()),
                     ),
+                    Positioned.fill(child: _buildVisibleWebView()),
                     if (_webProgress < 100 && !_readerOpen)
                       Positioned(
                         top: 0,

@@ -5,6 +5,15 @@
 
 ---
 
+## 2026-07-22 — v1.0.6：二次进章修复 + iOS 关阅读器不跳首页
+
+- **根因对齐**：阅读器盖住表页后 i.js `setInterval` 可能假死，退出后点其它章节不再触发 `loadComic`（无加载框、停滞计时也不走）。
+- **Dart 进章**：可见 WebView `onUpdateVisitedHistory` / `onLoadStop` 直接识别 `/comicContent/`、`/details/comic/`，不依赖表页定时器。
+- **退出收尾**：`_closeReader` / 收图停滞时 `stopLoading` + `about:blank` 中止隐藏 WebView；忽略「已退出且无 pending」的迟到 `setLoadingDialog`。
+- **加载反馈**：用户进章时立即弹出收集进度，不再干等 h.js。
+- **iOS 关阅读器跳首页**：隐藏 WebView 置顶/还原时曾前插 Stack 槽位，可见页无 Key 被重建并重载 `initialUrl`；现固定槽位 0 占位 + 可见页 `GlobalKey`，关阅读器只关阅读器。
+- **版本**：`1.0.6+7`。
+
 ## 2026-07-20 — v1.0.5：退出恢复表页 + 详情返回 + 去白闪
 
 - **取消阅读器内 clickClass 同步**：盖住表页时点站内按钮会把可见 H5 打乱（安卓关阅读器像回首页）；切章只走隐藏 WebView / 预取。
