@@ -34,9 +34,9 @@ if (!window.__cm_dbltap) {
 
 /// 主页面：可见 WebView 浏览手机版站点，隐藏 WebView 用 PC UA 收图。
 /// 阅读器嵌在本页 Stack（非另开 opaque 路由）；收图时隐藏 WebView 以 1×1 置顶，
-/// 保证 requestAnimationFrame 不被节流。阅读器内切章不改动可见 H5（避免盖住时
-/// clickClass / 深链把表页打回首页）。二次进章以 Dart 侧 URL 监听为主（不依赖
-/// 可能被盖住后假死的 i.js setInterval）；退出时中止隐藏 WebView 并 resume 表页。
+/// 保证 requestAnimationFrame 不被节流。阅读器内切章：隐藏 WebView 收图，同时
+/// resumeTimers + 安全 click 表页上下话按钮以同步 SPA 历史。二次进章以 Dart 侧
+/// URL 监听为主；退出时中止隐藏 WebView 并 resume 表页。
 class BrowserPage extends StatefulWidget {
   const BrowserPage({super.key});
 
@@ -552,8 +552,12 @@ try {
   }
 
   void _requestChapter(String mobileUrl, {bool? goNext}) {
-    // 故意不在此处同步表 H5：阅读器盖住时 clickClass/深链都会把可见页打乱（安卓尤甚，关阅读器像回首页）。
-    // goNext 仍由 ReaderPage 传入，供日后更安全的退出时同步使用。
+    // 在线阅读：先唤醒表页再点「上一话/下一话」，让 SPA 历史跟上（对齐 Kotlin）。
+    // 注意：盖住时 clickClass 曾把 H5 打乱；先 resumeTimers，且 JS 侧做元素存在检查。
+    if (goNext != null && !mobileUrl.startsWith('local://')) {
+      _lastVisibleHandledUrl = mobileUrl;
+      unawaited(_syncVisibleChapterNav(goNext));
+    }
     if (_prefetchedData != null && _prefetchedForUrl == mobileUrl) {
       final data = _prefetchedData!;
       _clearPrefetchState();
@@ -573,6 +577,26 @@ try {
       pc,
       stillValid: () => _pendingOpen && _pendingUrl == mobileUrl,
     );
+  }
+
+  /// 阅读器内切章时同步表页 SPA；失败则静默（收图仍走隐藏 WebView）。
+  Future<void> _syncVisibleChapterNav(bool goNext) async {
+    final c = _visibleController;
+    if (c == null) return;
+    final index = goNext ? 1 : 0;
+    try {
+      await c.resumeTimers();
+    } catch (_) {}
+    try {
+      await c.evaluateJavascript(
+        source: '''
+try {
+  var els = document.getElementsByClassName("comicControlBottomTopClick");
+  if (els && els.length > $index) els[$index].click();
+} catch (e) {}
+''',
+      );
+    } catch (_) {}
   }
 
   void _prefetchChapter(String mobileUrl) {

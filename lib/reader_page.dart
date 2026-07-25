@@ -9,12 +9,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'chapter_data.dart';
 import 'downloader.dart';
+import 'reader_tap_zones.dart';
 import 'retry_image.dart';
 import 'settings.dart';
 import 'system_ui.dart';
 import 'volume_keys.dart';
+import 'zoomable_reader_image.dart';
 
-/// 全屏漫画阅读器：横/纵/条漫三模式、原地切章、断点续读、80% 预取、
+/// 全屏漫画阅读器：横/纵/条漫三模式、点击分区翻页、原地切章、断点续读、80% 预取、
 /// 翻页到头再翻切章、音量键翻页、页码跳转、时间/网络信息栏。
 /// 对应原生版 ViewMangaActivity。
 class ReaderPage extends StatefulWidget {
@@ -63,6 +65,13 @@ class _ReaderPageState extends State<ReaderPage> {
   bool _endHintNext = false;
   bool _endHintPrev = false;
   DateTime _lastOverscrollAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// 横/纵模式下当前页已放大：锁定 PageView，把拖动手势留给缩放平移
+  bool _pageZoomed = false;
+
+  /// 双指按下时立刻锁翻页，避免捏合起步被 PageView 抢走（体感「不灵敏」）
+  int _pointerCount = 0;
+  bool _multiTouch = false;
 
   // 信息栏时钟
   Timer? _clockTimer;
@@ -114,6 +123,76 @@ class _ReaderPageState extends State<ReaderPage> {
     }
   }
 
+  /// 点击分区翻页；到首/末页时二次确认切章（对齐原生 PagesManager）。
+  void _navigateTap(bool goNext) {
+    if (_barsVisible) {
+      _toggleBars();
+      return;
+    }
+    if (_isWebtoon) {
+      _navigateWebtoonTap(goNext);
+      return;
+    }
+    if (goNext) {
+      if (_page < _count) {
+        _turnPage(1);
+        _endHintNext = false;
+      } else {
+        _tryAdjacentChapter(true);
+      }
+    } else {
+      if (_page > 1) {
+        _turnPage(-1);
+        _endHintPrev = false;
+      } else {
+        _tryAdjacentChapter(false);
+      }
+    }
+  }
+
+  /// 条漫点击：按约一屏滚动；真正顶/底才二次确认切章。
+  void _navigateWebtoonTap(bool goNext) {
+    if (_atChapterEdge(goNext)) {
+      _tryAdjacentChapter(goNext);
+      return;
+    }
+    if (goNext) {
+      _endHintNext = false;
+    } else {
+      _endHintPrev = false;
+    }
+    // ItemScrollController 无像素级 scrollBy；退化为按张跳，长图仍可用手势滑
+    final target = goNext ? _page + 1 : _page - 1;
+    if (target >= 1 && target <= _count) {
+      _jumpTo(target);
+    } else {
+      _tryAdjacentChapter(goNext);
+    }
+  }
+
+  void _tryAdjacentChapter(bool goNext) {
+    final url = goNext ? _data.nextChapterUrl : _data.previousChapterUrl;
+    if (url == null) {
+      _toast('已经到头了~');
+      return;
+    }
+    if (goNext ? _endHintNext : _endHintPrev) {
+      if (goNext) {
+        _endHintNext = false;
+      } else {
+        _endHintPrev = false;
+      }
+      _openAdjacent(goNext);
+    } else {
+      if (goNext) {
+        _endHintNext = true;
+      } else {
+        _endHintPrev = true;
+      }
+      _toast(goNext ? '再次按下加载下一章' : '再次按下加载上一章');
+    }
+  }
+
   void _onChapterChanged() {
     if (!mounted) return;
     _saveProgress();
@@ -124,6 +203,7 @@ class _ReaderPageState extends State<ReaderPage> {
       _downloading = false;
       _endHintNext = false;
       _endHintPrev = false;
+      _pageZoomed = false;
     });
     _initChapter();
   }
@@ -213,9 +293,15 @@ class _ReaderPageState extends State<ReaderPage> {
       _page = index + 1;
       _endHintNext = false;
       _endHintPrev = false;
+      _pageZoomed = false;
     });
     _maybePrefetch();
     _preloadAround(index);
+  }
+
+  void _onPageZoomChanged(bool zoomed) {
+    if (_pageZoomed == zoomed) return;
+    setState(() => _pageZoomed = zoomed);
   }
 
   void _onWebtoonScroll() {
@@ -279,7 +365,37 @@ class _ReaderPageState extends State<ReaderPage> {
     _lastOverscrollAt = now;
 
     final towardEnd = n.overscroll > 0;
-    if (towardEnd && _page >= _count) {
+    _handleChapterEdgeScroll(towardEnd);
+    return false;
+  }
+
+  /// 条漫在列表尽头继续滑时可能无 OverscrollNotification；
+  /// 仅在「手指仍在拖、且已顶住边界」时用 ScrollUpdate 补检测，避免滑到末页瞬间误提示。
+  bool _handleScrollNotification(ScrollNotification n) {
+    if (n is OverscrollNotification) return _handleOverscroll(n);
+    if (!_isWebtoon || n is! ScrollUpdateNotification || n.depth != 0) {
+      return false;
+    }
+    // 惯性滑入边界时 dragDetails == null，不能当成「再滑一次」
+    if (n.dragDetails == null) return false;
+    final delta = n.scrollDelta;
+    if (delta == null || delta.abs() < 2) return false;
+    final m = n.metrics;
+    final now = DateTime.now();
+    if (now.difference(_lastOverscrollAt).inMilliseconds < 600) return false;
+
+    if (delta > 0 && m.pixels >= m.maxScrollExtent - 2) {
+      _lastOverscrollAt = now;
+      _handleChapterEdgeScroll(true);
+    } else if (delta < 0 && m.pixels <= m.minScrollExtent + 2) {
+      _lastOverscrollAt = now;
+      _handleChapterEdgeScroll(false);
+    }
+    return false;
+  }
+
+  void _handleChapterEdgeScroll(bool towardEnd) {
+    if (towardEnd && _atChapterEdge(true)) {
       if (_data.nextChapterUrl == null && !_data.isLocal) {
         _toast('已经到头了~');
       } else if (_endHintNext) {
@@ -289,7 +405,7 @@ class _ReaderPageState extends State<ReaderPage> {
         _endHintNext = true;
         _toast('再次滑动加载下一章');
       }
-    } else if (!towardEnd && _page <= 1) {
+    } else if (!towardEnd && _atChapterEdge(false)) {
       if (_data.previousChapterUrl == null && !_data.isLocal) {
         _toast('已经到头了~');
       } else if (_endHintPrev) {
@@ -300,7 +416,23 @@ class _ReaderPageState extends State<ReaderPage> {
         _toast('再次滑动加载上一章');
       }
     }
-    return false;
+  }
+
+  /// 横/纵：页码到头即可；条漫：必须最后一页底部（或首页顶部）真正进入视口。
+  bool _atChapterEdge(bool towardEnd) {
+    if (!_isWebtoon) {
+      return towardEnd ? _page >= _count : _page <= 1;
+    }
+    final positions = _itemPositionsListener.itemPositions.value;
+    if (positions.isEmpty) {
+      return towardEnd ? _page >= _count : _page <= 1;
+    }
+    if (towardEnd) {
+      return positions.any(
+        (p) => p.index == _count - 1 && p.itemTrailingEdge <= 1.02,
+      );
+    }
+    return positions.any((p) => p.index == 0 && p.itemLeadingEdge >= -0.02);
   }
 
   void _toast(String msg) {
@@ -375,7 +507,10 @@ class _ReaderPageState extends State<ReaderPage> {
       _ => 'h',
     };
     AppSettings.setReadMode(next);
-    setState(() => _readMode = next);
+    setState(() {
+      _readMode = next;
+      _pageZoomed = false;
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) => _jumpTo(currentPage));
   }
 
@@ -461,8 +596,8 @@ class _ReaderPageState extends State<ReaderPage> {
       );
     }
     if (_isWebtoon) {
-      return NotificationListener<OverscrollNotification>(
-        onNotification: _handleOverscroll,
+      return NotificationListener<ScrollNotification>(
+        onNotification: _handleScrollNotification,
         child: ScrollablePositionedList.builder(
           itemCount: _count,
           itemScrollController: _itemScrollController,
@@ -472,20 +607,47 @@ class _ReaderPageState extends State<ReaderPage> {
         ),
       );
     }
-    return NotificationListener<OverscrollNotification>(
-      onNotification: _handleOverscroll,
-      child: PageView.builder(
-        controller: _pageController,
-        scrollDirection: _readMode == 'v' ? Axis.vertical : Axis.horizontal,
-        reverse: _readMode == 'h' && _r2l,
-        itemCount: _count,
-        onPageChanged: _onPageChanged,
-        itemBuilder: (context, index) => InteractiveViewer(
-          maxScale: 4,
-          child: Center(child: _buildImage(index)),
+    final lockPage =
+        _pageZoomed || _multiTouch;
+    return Listener(
+      onPointerDown: (_) {
+        _pointerCount++;
+        if (_pointerCount >= 2 && !_multiTouch) {
+          setState(() => _multiTouch = true);
+        }
+      },
+      onPointerUp: (_) => _onPointerLeave(),
+      onPointerCancel: (_) => _onPointerLeave(),
+      child: NotificationListener<ScrollNotification>(
+        onNotification: _handleScrollNotification,
+        child: PageView.builder(
+          controller: _pageController,
+          // 放大中 / 双指捏合中禁止翻页，把滑动交给 InteractiveViewer
+          physics: lockPage
+              ? const NeverScrollableScrollPhysics()
+              : const PageScrollPhysics(),
+          scrollDirection: _readMode == 'v' ? Axis.vertical : Axis.horizontal,
+          reverse: _readMode == 'h' && _r2l,
+          itemCount: _count,
+          onPageChanged: _onPageChanged,
+          itemBuilder: (context, index) => ZoomableReaderImage(
+            isHorizontal: _readMode == 'h',
+            r2l: _r2l,
+            onPageTurn: _navigateTap,
+            onMenu: _toggleBars,
+            onZoomChanged: _onPageZoomChanged,
+            child: _buildImage(index),
+          ),
         ),
       ),
     );
+  }
+
+  void _onPointerLeave() {
+    _pointerCount = (_pointerCount - 1).clamp(0, 20);
+    if (_pointerCount < 2 && _multiTouch) {
+      setState(() => _multiTouch = false);
+    }
   }
 
   @override
@@ -494,7 +656,15 @@ class _ReaderPageState extends State<ReaderPage> {
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          GestureDetector(onTap: _toggleBars, child: _buildViewer()),
+          _buildViewer(),
+          // 横/纵点击分区在 ZoomableReaderImage 内；条漫无缩放层，用叠层接收轻点
+          if (_isWebtoon)
+            ReaderTapZones(
+              isHorizontal: false,
+              r2l: _r2l,
+              onPageTurn: _navigateTap,
+              onMenu: _toggleBars,
+            ),
           if (AppSettings.showPageNum && _count > 0)
             Positioned(
               right: 8,

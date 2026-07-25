@@ -1,6 +1,6 @@
 import 'package:flutter/services.dart';
 
-/// 音量键翻页平台通道（仅 Android 生效；对应原生版 volturn 设置）。
+/// 音量键翻页平台通道（Android 拦截物理键；iOS 监听系统音量变化）。
 /// 阅读器进入时 enable 并注册回调，退出时 disable。
 class VolumeKeys {
   static const _channel = MethodChannel('cm/volkeys');
