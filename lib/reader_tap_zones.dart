@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 
 /// 阅读器点击分区结果。
-enum ReaderTapZone { prev, next, menu }
+enum ReaderTapZone { prev, next, menu, none }
 
-/// 横屏三分区（随右开本左右对调）；纵/条漫为顶上一页、底下一页、中央菜单。
+/// 横向：左/中/右三分区（随右开本左右对调）。
+/// 纵向：上/中/下三分区；菜单保留居中小矩形，中带左右两侧无效（防误触）。
 ReaderTapZone classifyReaderTap(
   Offset pos,
   Size size, {
@@ -23,6 +24,12 @@ ReaderTapZone classifyReaderTap(
     }
     return ReaderTapZone.menu;
   }
+
+  final fracY = pos.dy / h;
+  if (fracY <= 1 / 3) return ReaderTapZone.prev;
+  if (fracY >= 2 / 3) return ReaderTapZone.next;
+
+  // 中 1/3：仅现有菜单矩形生效，左右剩余区域无效
   final cx = w * 0.5;
   final cy = h * 0.5;
   final mw = w * 0.38;
@@ -30,11 +37,11 @@ ReaderTapZone classifyReaderTap(
   if ((pos.dx - cx).abs() < mw / 2 && (pos.dy - cy).abs() < mh / 2) {
     return ReaderTapZone.menu;
   }
-  if (pos.dy >= h * 0.5) return ReaderTapZone.next;
-  return ReaderTapZone.prev;
+  return ReaderTapZone.none;
 }
 
 /// 条漫模式叠层：只识别轻点，多指/滑动不触发；不挡住下层滚动。
+/// [enablePageTurn] 为 false 时仅中央菜单生效（条漫滑动易误触翻页）。
 class ReaderTapZones extends StatefulWidget {
   const ReaderTapZones({
     super.key,
@@ -42,12 +49,14 @@ class ReaderTapZones extends StatefulWidget {
     required this.r2l,
     required this.onPageTurn,
     required this.onMenu,
+    this.enablePageTurn = true,
   });
 
   final bool isHorizontal;
   final bool r2l;
   final void Function(bool goNext) onPageTurn;
   final VoidCallback onMenu;
+  final bool enablePageTurn;
 
   @override
   State<ReaderTapZones> createState() => _ReaderTapZonesState();
@@ -70,9 +79,11 @@ class _ReaderTapZonesState extends State<ReaderTapZones> {
       case ReaderTapZone.menu:
         widget.onMenu();
       case ReaderTapZone.next:
-        widget.onPageTurn(true);
+        if (widget.enablePageTurn) widget.onPageTurn(true);
       case ReaderTapZone.prev:
-        widget.onPageTurn(false);
+        if (widget.enablePageTurn) widget.onPageTurn(false);
+      case ReaderTapZone.none:
+        break;
     }
   }
 

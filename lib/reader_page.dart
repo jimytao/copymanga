@@ -123,16 +123,14 @@ class _ReaderPageState extends State<ReaderPage> {
     }
   }
 
-  /// 点击分区翻页；到首/末页时二次确认切章（对齐原生 PagesManager）。
+  /// 点击分区翻页（仅横/纵）；到首/末页时二次确认切章（对齐原生 PagesManager）。
+  /// 条漫禁用点击翻页，避免滑动误触。
   void _navigateTap(bool goNext) {
     if (_barsVisible) {
       _toggleBars();
       return;
     }
-    if (_isWebtoon) {
-      _navigateWebtoonTap(goNext);
-      return;
-    }
+    if (_isWebtoon) return;
     if (goNext) {
       if (_page < _count) {
         _turnPage(1);
@@ -147,26 +145,6 @@ class _ReaderPageState extends State<ReaderPage> {
       } else {
         _tryAdjacentChapter(false);
       }
-    }
-  }
-
-  /// 条漫点击：按约一屏滚动；真正顶/底才二次确认切章。
-  void _navigateWebtoonTap(bool goNext) {
-    if (_atChapterEdge(goNext)) {
-      _tryAdjacentChapter(goNext);
-      return;
-    }
-    if (goNext) {
-      _endHintNext = false;
-    } else {
-      _endHintPrev = false;
-    }
-    // ItemScrollController 无像素级 scrollBy；退化为按张跳，长图仍可用手势滑
-    final target = goNext ? _page + 1 : _page - 1;
-    if (target >= 1 && target <= _count) {
-      _jumpTo(target);
-    } else {
-      _tryAdjacentChapter(goNext);
     }
   }
 
@@ -657,11 +635,12 @@ class _ReaderPageState extends State<ReaderPage> {
       body: Stack(
         children: [
           _buildViewer(),
-          // 横/纵点击分区在 ZoomableReaderImage 内；条漫无缩放层，用叠层接收轻点
+          // 横/纵点击分区在 ZoomableReaderImage 内；条漫无缩放层，叠层只开中央菜单
           if (_isWebtoon)
             ReaderTapZones(
               isHorizontal: false,
               r2l: _r2l,
+              enablePageTurn: false,
               onPageTurn: _navigateTap,
               onMenu: _toggleBars,
             ),

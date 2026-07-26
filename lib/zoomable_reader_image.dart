@@ -119,6 +119,8 @@ class _ZoomableReaderImageState extends State<ZoomableReaderImage>
         widget.onPageTurn(true);
       case ReaderTapZone.prev:
         widget.onPageTurn(false);
+      case ReaderTapZone.none:
+        break;
     }
   }
 

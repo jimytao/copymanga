@@ -49,7 +49,7 @@ if (-not (Test-Path "$kt\app\build.gradle") -or (Get-Item "$kt\app\build.gradle"
 | Kotlin 分支（勿推错） | `re_build` |
 | Application ID | `top.fumiama.copymanga_flutter` |
 | 版本号唯一源 | `pubspec.yaml` 的 `version:` |
-| 当前版本 | `1.0.7+8`（versionName=`1.0.7`，versionCode=`8`） |
+| 当前版本 | `1.0.8+9`（versionName=`1.0.8`，versionCode=`9`） |
 | **Git Tag 格式** | **`flutter-vX.Y.Z`**（例：`flutter-v1.0.0`） |
 | Kotlin Tag 格式（勿混用） | `vX.Y.Z`（例：`v1.5.13`） |
 | 签名密钥库 | 工作区根 `keystore.jks`（与 Kotlin 共用，**不入库**） |
