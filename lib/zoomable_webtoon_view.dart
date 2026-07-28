@@ -1,35 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
-import 'reader_tap_zones.dart';
-
-/// 单页可缩放图：捏合缩放 + 双击放大/还原；单击走点击分区。
-///
-/// 点击用 [Listener] 原始指针识别，不进手势竞技场，避免拖慢 PageView 左右滑。
-/// 未放大时关闭平移，把单指滑动留给翻页。
-class ZoomableReaderImage extends StatefulWidget {
-  const ZoomableReaderImage({
+/// 条漫模式连续长列表可缩放容器：
+/// - 支持 1.0x ~ 4.0x 随意双指捏合连续缩放与双击放大/还原；
+/// - 未放大（Scale 1.0）时关闭二维平移（panEnabled = false），单指上下滑直接驱动长列表流畅滚动。
+class ZoomableWebtoonView extends StatefulWidget {
+  const ZoomableWebtoonView({
     super.key,
     required this.child,
-    required this.isHorizontal,
-    required this.r2l,
-    required this.onPageTurn,
-    required this.onMenu,
     this.onZoomChanged,
   });
 
   final Widget child;
-  final bool isHorizontal;
-  final bool r2l;
-  final void Function(bool goNext) onPageTurn;
-  final VoidCallback onMenu;
   final ValueChanged<bool>? onZoomChanged;
 
   @override
-  State<ZoomableReaderImage> createState() => _ZoomableReaderImageState();
+  State<ZoomableWebtoonView> createState() => _ZoomableWebtoonViewState();
 }
 
-class _ZoomableReaderImageState extends State<ZoomableReaderImage>
+class _ZoomableWebtoonViewState extends State<ZoomableWebtoonView>
     with SingleTickerProviderStateMixin {
   static const _maxScale = 4.0;
   static const _doubleTapScale = 2.0;
@@ -41,7 +30,6 @@ class _ZoomableReaderImageState extends State<ZoomableReaderImage>
   Animation<Matrix4>? _matrixAnim;
   bool _zoomed = false;
 
-  // 原始指针点击（不进 GestureArena，不拖慢翻页）
   int _pointers = 0;
   Offset? _downPos;
   int? _downPointer;
@@ -100,34 +88,9 @@ class _ZoomableReaderImageState extends State<ZoomableReaderImage>
     _animateTo(zoomed);
   }
 
-  void _handleSingleTap(Offset pos) {
-    if (_zoomed) {
-      _animateTo(Matrix4.identity());
-      return;
-    }
-    final box = context.findRenderObject() as RenderBox?;
-    if (box == null || !box.hasSize) return;
-    switch (classifyReaderTap(
-      pos,
-      box.size,
-      isHorizontal: widget.isHorizontal,
-      r2l: widget.r2l,
-    )) {
-      case ReaderTapZone.menu:
-        widget.onMenu();
-      case ReaderTapZone.next:
-        widget.onPageTurn(true);
-      case ReaderTapZone.prev:
-        widget.onPageTurn(false);
-      case ReaderTapZone.none:
-        break;
-    }
-  }
-
   void _onPointerDown(PointerDownEvent e) {
     _pointers++;
     if (_pointers > 1) {
-      // 多指：取消单击/双击判定，交给捏合
       _downPointer = null;
       _downPos = null;
       _firstTapAt = null;
@@ -171,16 +134,6 @@ class _ZoomableReaderImageState extends State<ZoomableReaderImage>
 
     _firstTapAt = now;
     _firstTapPos = e.localPosition;
-    // 等双击窗口结束再触发单击，避免双击第一下误翻页
-    final scheduledPos = e.localPosition;
-    final scheduledAt = now;
-    Future<void>.delayed(_doubleTapTimeout, () {
-      if (!mounted) return;
-      if (_firstTapAt != scheduledAt || _firstTapPos != scheduledPos) return;
-      _firstTapAt = null;
-      _firstTapPos = null;
-      _handleSingleTap(scheduledPos);
-    });
   }
 
   void _onPointerCancel(PointerEvent e) {
@@ -201,16 +154,14 @@ class _ZoomableReaderImageState extends State<ZoomableReaderImage>
       onPointerCancel: _onPointerCancel,
       child: InteractiveViewer(
         transformationController: _transform,
-        minScale: 1,
+        minScale: 1.0,
         maxScale: _maxScale,
-        // 未放大时关闭平移，单指滑动完全交给 PageView
         panEnabled: _zoomed,
         scaleEnabled: true,
         clipBehavior: Clip.hardEdge,
         onInteractionStart: (details) {
           if (details.pointerCount > 1) {
             _scaleInteracting = true;
-            // 捏合开始时作废点击序列
             _firstTapAt = null;
             _firstTapPos = null;
           }
@@ -218,14 +169,11 @@ class _ZoomableReaderImageState extends State<ZoomableReaderImage>
         onInteractionEnd: (_) {
           _scaleInteracting = false;
           _onTransformChanged();
-          // 若松手后已回到 1x，确保外层解锁翻页
           SchedulerBinding.instance.addPostFrameCallback((_) {
             if (mounted) _onTransformChanged();
           });
         },
-        child: SizedBox.expand(
-          child: Center(child: widget.child),
-        ),
+        child: widget.child,
       ),
     );
   }

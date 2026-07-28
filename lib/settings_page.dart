@@ -83,8 +83,8 @@ class _SettingsPageState extends State<SettingsPage> {
     if (mounted) {
       setState(() {
         _probing = false;
-        _probeResult = UrlManager.manualMode
-            ? '手动模式下测速仅供参考，当前仍使用：$best'
+        _probeResult = UrlManager.lastProbeNote.isNotEmpty
+            ? UrlManager.lastProbeNote
             : '当前使用：$best';
       });
     }
@@ -185,7 +185,7 @@ class _SettingsPageState extends State<SettingsPage> {
             title: Text(
               UrlManager.manualMode
                   ? '当前为手动模式：自动测速不会替你换源'
-                  : '当前为自动模式：启动时自动选择最快可用源',
+                  : '当前为自动模式：沿用已选源站，仅失效或明显过慢时切换',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ),

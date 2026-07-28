@@ -15,6 +15,7 @@ import 'settings.dart';
 import 'system_ui.dart';
 import 'volume_keys.dart';
 import 'zoomable_reader_image.dart';
+import 'zoomable_webtoon_view.dart';
 
 /// 全屏漫画阅读器：横/纵/条漫三模式、点击分区翻页、原地切章、断点续读、80% 预取、
 /// 翻页到头再翻切章、音量键翻页、页码跳转、时间/网络信息栏。
@@ -576,12 +577,15 @@ class _ReaderPageState extends State<ReaderPage> {
     if (_isWebtoon) {
       return NotificationListener<ScrollNotification>(
         onNotification: _handleScrollNotification,
-        child: ScrollablePositionedList.builder(
-          itemCount: _count,
-          itemScrollController: _itemScrollController,
-          itemPositionsListener: _itemPositionsListener,
-          itemBuilder: (context, index) =>
-              _buildImage(index, fit: BoxFit.fitWidth),
+        child: ZoomableWebtoonView(
+          onZoomChanged: _onPageZoomChanged,
+          child: ScrollablePositionedList.builder(
+            itemCount: _count,
+            itemScrollController: _itemScrollController,
+            itemPositionsListener: _itemPositionsListener,
+            itemBuilder: (context, index) =>
+                _buildImage(index, fit: BoxFit.fitWidth),
+          ),
         ),
       );
     }

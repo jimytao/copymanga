@@ -2,8 +2,11 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 多域名测速与缓存，对应原生版 UrlManager.kt。
-/// 与原生版一致：手动模式（manual_url）优先于自动测速结果且不被覆盖。
-/// 测速时校验页面内容确实是拷贝漫画站点，防止过期域名停靠页赢得测速。
+///
+/// - 手动模式（manual_url）优先，测速不改 activeUrl。
+/// - 自动模式：首次测速选最快并缓存；之后**忠诚**已选源，仅在失效或明显过慢时切换。
+/// - 过慢判定：当前源在有效结果中排倒数 2 名，且相对最快慢 ≥1s **或** ≥2 倍。
+/// - 测速校验页面正文，防止过期域名停靠页赢得测速。
 class UrlManager {
   static const candidates = [
     'https://www.copy3000.com',
@@ -11,6 +14,12 @@ class UrlManager {
     'https://www.mangacopy.com',
     'https://www.copymanga.site',
   ];
+
+  /// 相对最快延迟达到该毫秒数，才可能因「过慢」换源（还需满足倒数 2 名）。
+  static const slowAbsoluteMs = 1000;
+
+  /// 相对最快达到该倍数，才可能因「过慢」换源（还需满足倒数 2 名）。
+  static const slowRatio = 2;
 
   static List<String> get allowedPrefixes => [
         ...candidates,
@@ -27,6 +36,9 @@ class UrlManager {
 
   /// 是否已有可用的缓存/手动源（有则启动不必等网络）
   static bool hasCachedUrl = false;
+
+  /// 最近一次 probe 的说明（设置页「重新测速」展示）
+  static String lastProbeNote = '';
 
   /// 手机版章节 URL 转 PC 版（供隐藏 WebView 收图）
   static String toPcUrl(String mobileUrl) {
@@ -118,20 +130,94 @@ class UrlManager {
     return probe();
   }
 
-  /// 并发校验全部候选，选内容正确且最快的（手动模式下不改 activeUrl）
+  /// 当前源是否因「过慢」应换掉。
+  /// [validSorted] 按耗时升序；[preferredIdx] 为当前源在其中的下标。
+  static bool shouldSwitchForSlow(
+    List<MapEntry<String, int>> validSorted,
+    int preferredIdx,
+  ) {
+    if (validSorted.length < 2) return false;
+    // 倒数 2 名：下标 >= length - 2
+    if (preferredIdx < validSorted.length - 2) return false;
+
+    final currentMs = validSorted[preferredIdx].value;
+    final bestMs = validSorted.first.value;
+    if (bestMs <= 0) return false;
+
+    // 绝对延时超过 4 秒，强制换源
+    if (currentMs > 4000) return true;
+
+    final slowerByMs = currentMs - bestMs;
+    final thriceOrMore = currentMs >= bestMs * slowRatio;
+    return slowerByMs >= slowAbsoluteMs && thriceOrMore;
+  }
+
+  /// 并发校验全部候选。
+  /// 手动模式：不改 activeUrl。
+  /// 自动模式：首次选最快；之后保持已选源，仅失效或明显过慢时换到最快。
   static Future<String> probe() async {
     final results = await Future.wait(
       candidates.map((url) async => MapEntry(url, await _validate(url))),
     );
-    final valid = results.where((e) => e.value != null).toList()
-      ..sort((a, b) => a.value!.compareTo(b.value!));
+    final valid = results
+        .where((e) => e.value != null)
+        .map((e) => MapEntry(e.key, e.value!))
+        .toList()
+      ..sort((a, b) => a.value.compareTo(b.value));
     allSourcesDown = valid.isEmpty;
-    if (valid.isNotEmpty && !manualMode) {
-      activeUrl = valid.first.key;
-      hasCachedUrl = true;
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('active_url', activeUrl);
+
+    if (manualMode) {
+      lastProbeNote = valid.isEmpty
+          ? '全部源不可用；手动模式仍使用 $activeUrl'
+          : '最快 ${valid.first.key}（${valid.first.value}ms）；手动模式仍使用 $activeUrl';
+      return activeUrl;
     }
+
+    if (valid.isEmpty) {
+      lastProbeNote = '全部源不可用';
+      return activeUrl;
+    }
+
+    final best = valid.first;
+    final prefs = await SharedPreferences.getInstance();
+
+    // 首次无缓存：选最快
+    if (!hasCachedUrl) {
+      activeUrl = best.key;
+      hasCachedUrl = true;
+      await prefs.setString('active_url', activeUrl);
+      lastProbeNote = '首次选源：${best.key}（${best.value}ms）';
+      return activeUrl;
+    }
+
+    final preferredIdx = valid.indexWhere((e) => e.key == activeUrl);
+
+    // 当前源失效 → 换最快
+    if (preferredIdx < 0) {
+      final prev = activeUrl;
+      activeUrl = best.key;
+      await prefs.setString('active_url', activeUrl);
+      lastProbeNote = '原源站失效（$prev），已切换至 ${best.key}（${best.value}ms）';
+      return activeUrl;
+    }
+
+    // 有效但过慢（倒数 2 + 慢 2.5s 且 3 倍）→ 换最快
+    if (shouldSwitchForSlow(valid, preferredIdx)) {
+      final prev = activeUrl;
+      final prevMs = valid[preferredIdx].value;
+      activeUrl = best.key;
+      await prefs.setString('active_url', activeUrl);
+      lastProbeNote =
+          '原源站过慢（$prev ${prevMs}ms），已切换至 ${best.key}（${best.value}ms）';
+      return activeUrl;
+    }
+
+    // 忠诚保持
+    final curMs = valid[preferredIdx].value;
+    lastProbeNote = curMs == best.value
+        ? '保持当前源站 $activeUrl（${curMs}ms，仍为最快）'
+        : '保持当前源站 $activeUrl（${curMs}ms；最快 ${best.key} ${best.value}ms）';
+    await prefs.setString('active_url', activeUrl);
     return activeUrl;
   }
 }
