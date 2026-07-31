@@ -8,6 +8,7 @@ import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'chapter_data.dart';
+import 'chapter_edge_guard.dart';
 import 'downloader.dart';
 import 'reader_tap_zones.dart';
 import 'retry_image.dart';
@@ -18,7 +19,7 @@ import 'zoomable_reader_image.dart';
 import 'zoomable_webtoon_view.dart';
 
 /// 全屏漫画阅读器：横/纵/条漫三模式、点击分区翻页、原地切章、断点续读、80% 预取、
-/// 翻页到头再翻切章、音量键翻页、页码跳转、时间/网络信息栏。
+/// 翻页到头再翻/再按切章、音量键翻页、页码跳转、时间/网络信息栏。
 /// 对应原生版 ViewMangaActivity。
 class ReaderPage extends StatefulWidget {
   const ReaderPage({
@@ -62,10 +63,9 @@ class _ReaderPageState extends State<ReaderPage> {
   bool _downloading = false;
   String _downloadProgress = '';
 
-  // 翻页到头再翻切章（对应原生版 isEndL/isEndR + doubleTapToast）
-  bool _endHintNext = false;
-  bool _endHintPrev = false;
-  DateTime _lastOverscrollAt = DateTime.fromMillisecondsSinceEpoch(0);
+  // 翻页到头再翻/再按切章（对应原生版 isEndL/isEndR + doubleTapToast）
+  final _edgeGuard = ChapterEdgeGuard();
+  final _edgeGate = EdgeGestureGate();
 
   /// 横/纵模式下当前页已放大：锁定 PageView，把拖动手势留给缩放平移
   bool _pageZoomed = false;
@@ -98,6 +98,17 @@ class _ReaderPageState extends State<ReaderPage> {
   }
 
   void _volBack() {
+    if (_page <= 1) {
+      _applyEdgeOutcome(
+        _edgeGuard.onEdge(
+          false,
+          hasAdjacent: _data.previousChapterUrl != null,
+        ),
+        goNext: false,
+        scrollStyle: false,
+      );
+      return;
+    }
     if (_isWebtoon) {
       _jumpTo(_page - 1);
     } else {
@@ -106,6 +117,17 @@ class _ReaderPageState extends State<ReaderPage> {
   }
 
   void _volForward() {
+    if (_page >= _count) {
+      _applyEdgeOutcome(
+        _edgeGuard.onEdge(
+          true,
+          hasAdjacent: _data.nextChapterUrl != null,
+        ),
+        goNext: true,
+        scrollStyle: false,
+      );
+      return;
+    }
     if (_isWebtoon) {
       _jumpTo(_page + 1);
     } else {
@@ -135,14 +157,14 @@ class _ReaderPageState extends State<ReaderPage> {
     if (goNext) {
       if (_page < _count) {
         _turnPage(1);
-        _endHintNext = false;
+        _edgeGuard.clearSide(true);
       } else {
         _tryAdjacentChapter(true);
       }
     } else {
       if (_page > 1) {
         _turnPage(-1);
-        _endHintPrev = false;
+        _edgeGuard.clearSide(false);
       } else {
         _tryAdjacentChapter(false);
       }
@@ -150,25 +172,31 @@ class _ReaderPageState extends State<ReaderPage> {
   }
 
   void _tryAdjacentChapter(bool goNext) {
-    final url = goNext ? _data.nextChapterUrl : _data.previousChapterUrl;
-    if (url == null) {
-      _toast('已经到头了~');
-      return;
-    }
-    if (goNext ? _endHintNext : _endHintPrev) {
-      if (goNext) {
-        _endHintNext = false;
-      } else {
-        _endHintPrev = false;
-      }
-      _openAdjacent(goNext);
-    } else {
-      if (goNext) {
-        _endHintNext = true;
-      } else {
-        _endHintPrev = true;
-      }
-      _toast(goNext ? '再次按下加载下一章' : '再次按下加载上一章');
+    final hasAdjacent =
+        (goNext ? _data.nextChapterUrl : _data.previousChapterUrl) != null;
+    _applyEdgeOutcome(
+      _edgeGuard.onEdge(goNext, hasAdjacent: hasAdjacent),
+      goNext: goNext,
+      scrollStyle: false,
+    );
+  }
+
+  void _applyEdgeOutcome(
+    ChapterEdgeOutcome outcome, {
+    required bool goNext,
+    required bool scrollStyle,
+  }) {
+    switch (outcome) {
+      case ChapterEdgeOutcome.atEnd:
+        _toast('已经到头了~');
+      case ChapterEdgeOutcome.confirmNeeded:
+        if (scrollStyle) {
+          _toast(goNext ? '再次滑动加载下一章' : '再次滑动加载上一章');
+        } else {
+          _toast(goNext ? '再次按下加载下一章' : '再次按下加载上一章');
+        }
+      case ChapterEdgeOutcome.openChapter:
+        _openAdjacent(goNext);
     }
   }
 
@@ -180,10 +208,9 @@ class _ReaderPageState extends State<ReaderPage> {
       _page = 1;
       _prefetchRequested = false;
       _downloading = false;
-      _endHintNext = false;
-      _endHintPrev = false;
       _pageZoomed = false;
     });
+    _edgeGuard.clear();
     _initChapter();
   }
 
@@ -270,10 +297,9 @@ class _ReaderPageState extends State<ReaderPage> {
   void _onPageChanged(int index) {
     setState(() {
       _page = index + 1;
-      _endHintNext = false;
-      _endHintPrev = false;
       _pageZoomed = false;
     });
+    _edgeGuard.clear();
     _maybePrefetch();
     _preloadAround(index);
   }
@@ -292,11 +318,8 @@ class _ReaderPageState extends State<ReaderPage> {
         .reduce((a, b) => a.index < b.index ? a : b);
     final newPage = (first.index + 1).clamp(1, _count);
     if (newPage != _page) {
-      setState(() {
-        _page = newPage;
-        _endHintNext = false;
-        _endHintPrev = false;
-      });
+      setState(() => _page = newPage);
+      _edgeGuard.clear();
       _maybePrefetch();
       _preloadAround(newPage - 1);
     }
@@ -337,12 +360,8 @@ class _ReaderPageState extends State<ReaderPage> {
 
   /// 翻页到头继续翻 → 提示一次 → 再翻切章（对应原生版 doubleTapToast 逻辑）
   bool _handleOverscroll(OverscrollNotification n) {
-    // 防止一次拖动产生的连续 overscroll 通知重复触发
-    final now = DateTime.now();
-    if (now.difference(_lastOverscrollAt).inMilliseconds < 600) return false;
     if (n.overscroll.abs() < 8) return false;
-    _lastOverscrollAt = now;
-
+    if (!_edgeGate.allow()) return false;
     final towardEnd = n.overscroll > 0;
     _handleChapterEdgeScroll(towardEnd);
     return false;
@@ -360,41 +379,26 @@ class _ReaderPageState extends State<ReaderPage> {
     final delta = n.scrollDelta;
     if (delta == null || delta.abs() < 2) return false;
     final m = n.metrics;
-    final now = DateTime.now();
-    if (now.difference(_lastOverscrollAt).inMilliseconds < 600) return false;
 
     if (delta > 0 && m.pixels >= m.maxScrollExtent - 2) {
-      _lastOverscrollAt = now;
+      if (!_edgeGate.allow()) return false;
       _handleChapterEdgeScroll(true);
     } else if (delta < 0 && m.pixels <= m.minScrollExtent + 2) {
-      _lastOverscrollAt = now;
+      if (!_edgeGate.allow()) return false;
       _handleChapterEdgeScroll(false);
     }
     return false;
   }
 
   void _handleChapterEdgeScroll(bool towardEnd) {
-    if (towardEnd && _atChapterEdge(true)) {
-      if (_data.nextChapterUrl == null && !_data.isLocal) {
-        _toast('已经到头了~');
-      } else if (_endHintNext) {
-        _endHintNext = false;
-        _openAdjacent(true);
-      } else {
-        _endHintNext = true;
-        _toast('再次滑动加载下一章');
-      }
-    } else if (!towardEnd && _atChapterEdge(false)) {
-      if (_data.previousChapterUrl == null && !_data.isLocal) {
-        _toast('已经到头了~');
-      } else if (_endHintPrev) {
-        _endHintPrev = false;
-        _openAdjacent(false);
-      } else {
-        _endHintPrev = true;
-        _toast('再次滑动加载上一章');
-      }
-    }
+    if (!_atChapterEdge(towardEnd)) return;
+    final hasAdjacent =
+        (towardEnd ? _data.nextChapterUrl : _data.previousChapterUrl) != null;
+    _applyEdgeOutcome(
+      _edgeGuard.onEdge(towardEnd, hasAdjacent: hasAdjacent),
+      goNext: towardEnd,
+      scrollStyle: true,
+    );
   }
 
   /// 横/纵：页码到头即可；条漫：必须最后一页底部（或首页顶部）真正进入视口。
@@ -575,16 +579,21 @@ class _ReaderPageState extends State<ReaderPage> {
       );
     }
     if (_isWebtoon) {
-      return NotificationListener<ScrollNotification>(
-        onNotification: _handleScrollNotification,
-        child: ZoomableWebtoonView(
-          onZoomChanged: _onPageZoomChanged,
-          child: ScrollablePositionedList.builder(
-            itemCount: _count,
-            itemScrollController: _itemScrollController,
-            itemPositionsListener: _itemPositionsListener,
-            itemBuilder: (context, index) =>
-                _buildImage(index, fit: BoxFit.fitWidth),
+      return Listener(
+        onPointerDown: _onEdgePointerDown,
+        onPointerUp: (_) => _onPointerLeave(),
+        onPointerCancel: (_) => _onPointerLeave(),
+        child: NotificationListener<ScrollNotification>(
+          onNotification: _handleScrollNotification,
+          child: ZoomableWebtoonView(
+            onZoomChanged: _onPageZoomChanged,
+            child: ScrollablePositionedList.builder(
+              itemCount: _count,
+              itemScrollController: _itemScrollController,
+              itemPositionsListener: _itemPositionsListener,
+              itemBuilder: (context, index) =>
+                  _buildImage(index, fit: BoxFit.fitWidth),
+            ),
           ),
         ),
       );
@@ -592,8 +601,8 @@ class _ReaderPageState extends State<ReaderPage> {
     final lockPage =
         _pageZoomed || _multiTouch;
     return Listener(
-      onPointerDown: (_) {
-        _pointerCount++;
+      onPointerDown: (e) {
+        _onEdgePointerDown(e);
         if (_pointerCount >= 2 && !_multiTouch) {
           setState(() => _multiTouch = true);
         }
@@ -623,6 +632,13 @@ class _ReaderPageState extends State<ReaderPage> {
         ),
       ),
     );
+  }
+
+  void _onEdgePointerDown(PointerDownEvent _) {
+    _pointerCount++;
+    if (_pointerCount == 1) {
+      _edgeGate.beginGesture();
+    }
   }
 
   void _onPointerLeave() {
