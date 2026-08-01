@@ -14,6 +14,7 @@ import android.os.Message
 import android.util.Log
 import android.view.KeyEvent
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.app.AlertDialog
@@ -38,9 +39,11 @@ import top.fumiama.copymangaweb.activity.MainActivity.Companion.wm
 import top.fumiama.copymangaweb.activity.template.ToolsBoxActivity
 import top.fumiama.copymangaweb.databinding.ActivityViewmangaBinding
 import top.fumiama.copymangaweb.handler.TimeThread
+import top.fumiama.copymangaweb.tool.EdgeGestureGate
 import top.fumiama.copymangaweb.tool.PagesManager
 import top.fumiama.copymangaweb.tool.PropertiesTools
 import top.fumiama.copymangaweb.tool.ToolsBox
+import top.fumiama.copymangaweb.tool.tryAcceptEdgeOverscroll
 import top.fumiama.copymangaweb.view.ScaleImageView
 import java.io.File
 import java.lang.ref.WeakReference
@@ -48,11 +51,13 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
+import kotlin.math.abs
 
 class ViewMangaActivity : ToolsBoxActivity() {
     lateinit var handler: Handler
     lateinit var tt: TimeThread
     lateinit var mBinding: ActivityViewmangaBinding
+    lateinit var pagesManager: PagesManager
 
     var count = 0
     var clicked = false
@@ -78,7 +83,12 @@ class ViewMangaActivity : ToolsBoxActivity() {
     private var webtoonPage = 1
     private var notUseVP = true
     private val isWebtoon: Boolean get() = !notUseVP && p["readMode"] == "w"
+    /** 供 PagesManager / 热区使用的公开条漫判定。 */
+    val isWebtoonMode: Boolean get() = isWebtoon
+    val readMode: String
+        get() = p["readMode"] ?: if (p["vertical"] == "true") "v" else "h"
     private var isPageTurning = false
+    private val edgeGate = EdgeGestureGate()
     var pageNum = 1
         get() {
             field = getPageNumber()
@@ -106,6 +116,7 @@ class ViewMangaActivity : ToolsBoxActivity() {
         mBinding = ActivityViewmangaBinding.inflate(layoutInflater)
         setContentView(mBinding.root)
         va = WeakReference(this)
+        pagesManager = PagesManager(WeakReference(this))
 
         // 从 Intent extras 读取数据（替代原来的 companion object 静态字段传参）
         titleText = intent.getStringExtra(EXTRA_TITLE) ?: "Null"
@@ -180,18 +191,17 @@ class ViewMangaActivity : ToolsBoxActivity() {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        var flag = false
-        if(volTurnPage) when(keyCode) {
-            KeyEvent.KEYCODE_VOLUME_UP -> {
-                scrollBack()
-                flag = true
-            }
-            KeyEvent.KEYCODE_VOLUME_DOWN -> {
-                scrollForward()
-                flag = true
+        if (volTurnPage) when (keyCode) {
+            KeyEvent.KEYCODE_VOLUME_UP, KeyEvent.KEYCODE_VOLUME_DOWN -> {
+                // 长按会产生 repeat，避免一次长按连跳确认态/换章
+                if ((event?.repeatCount ?: 0) > 0) return true
+                val goNext = keyCode == KeyEvent.KEYCODE_VOLUME_DOWN
+                // 阅读顺序；勿用 toPreviousPage/toNextPage（那是屏幕左右热区 API）
+                pagesManager.turnReading(goNext = goNext, scrollStyle = false)
+                return true
             }
         }
-        return if(flag) true else super.onKeyDown(keyCode, event)
+        return super.onKeyDown(keyCode, event)
     }
 
     private fun getPageNumber(): Int {
@@ -252,18 +262,14 @@ class ViewMangaActivity : ToolsBoxActivity() {
             isEnabled = previousChapterUrl != null
             alpha = if (previousChapterUrl != null) 1f else 0.4f
             setOnClickListener {
-                previousChapterUrl?.let {
-                    PagesManager(WeakReference(this@ViewMangaActivity)).openAdjacentChapter(false)
-                }
+                previousChapterUrl?.let { pagesManager.openAdjacentChapter(false) }
             }
         } }
         mBinding.infcard.idbtnNextChapter.apply { post {
             isEnabled = nextChapterUrl != null
             alpha = if (nextChapterUrl != null) 1f else 0.4f
             setOnClickListener {
-                nextChapterUrl?.let {
-                    PagesManager(WeakReference(this@ViewMangaActivity)).openAdjacentChapter(true)
-                }
+                nextChapterUrl?.let { pagesManager.openAdjacentChapter(true) }
             }
         } }
     }
@@ -325,6 +331,7 @@ class ViewMangaActivity : ToolsBoxActivity() {
                 })
                 if (p["readMode"] == "v") orientation = ViewPager2.ORIENTATION_VERTICAL
                 if (r2l) currentItem = count - 1
+                post { installEdgeOverscrollOnVp() }
             } }
             mBinding.vone.root.apply { post { visibility = View.INVISIBLE } }
             mBinding.vrv.apply { post { visibility = View.INVISIBLE } }
@@ -459,6 +466,7 @@ class ViewMangaActivity : ToolsBoxActivity() {
                 }
             })
             if (r2l) currentItem = count - 1
+            post { installEdgeOverscrollOnVp() }
         }
     }
 
@@ -476,6 +484,123 @@ class ViewMangaActivity : ToolsBoxActivity() {
                 }
             }
         })
+        installEdgeOverscrollOnRv(mBinding.vrv)
+    }
+
+    /**
+     * 条漫：末页底部（或首页顶部）真正进入视口才算章节边界（对齐 Flutter _atChapterEdge）。
+     */
+    fun atWebtoonChapterEdge(towardEnd: Boolean): Boolean {
+        val rv = mBinding.vrv
+        val lm = rv.layoutManager as? LinearLayoutManager
+            ?: return if (towardEnd) pageNum >= count else pageNum <= 1
+        if (count <= 0) return true
+        if (towardEnd) {
+            val last = lm.findLastVisibleItemPosition()
+            if (last < count - 1) return false
+            val view = lm.findViewByPosition(last) ?: return pageNum >= count
+            return view.bottom <= rv.height - rv.paddingBottom + 2
+        }
+        val first = lm.findFirstVisibleItemPosition()
+        if (first > 0) return false
+        val view = lm.findViewByPosition(0) ?: return pageNum <= 1
+        return view.top >= rv.paddingTop - 2
+    }
+
+    fun atChapterEdge(towardEnd: Boolean): Boolean {
+        if (isWebtoon) return atWebtoonChapterEdge(towardEnd)
+        return if (towardEnd) pageNum >= count else pageNum <= 1
+    }
+
+    private fun installEdgeOverscrollOnVp(retries: Int = 8) {
+        val rv = mBinding.vp.getChildAt(0) as? RecyclerView
+        if (rv == null) {
+            if (retries > 0) mBinding.vp.post { installEdgeOverscrollOnVp(retries - 1) }
+            return
+        }
+        installEdgeOverscrollOnRv(rv)
+    }
+
+    private fun installEdgeOverscrollOnRv(rv: RecyclerView) {
+        if (rv.getTag(R.id.onei) == EDGE_OVERSCROLL_TAG) return
+        rv.setTag(R.id.onei, EDGE_OVERSCROLL_TAG)
+        rv.addOnItemTouchListener(object : RecyclerView.SimpleOnItemTouchListener() {
+            private var lastX = 0f
+            private var lastY = 0f
+            private var active = false
+
+            override fun onInterceptTouchEvent(recyclerView: RecyclerView, e: MotionEvent): Boolean {
+                when (e.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        edgeGate.beginGesture()
+                        lastX = e.x
+                        lastY = e.y
+                        active = true
+                    }
+                    MotionEvent.ACTION_POINTER_DOWN -> active = false
+                    MotionEvent.ACTION_MOVE -> {
+                        if (active && e.pointerCount == 1) {
+                            val dx = e.x - lastX
+                            val dy = e.y - lastY
+                            lastX = e.x
+                            lastY = e.y
+                            handleEdgeDrag(recyclerView, dx, dy)
+                        }
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> active = false
+                }
+                return false
+            }
+        })
+    }
+
+    /** 列表在阅读方向上是否还能滚（能滚则不是真正越界，避免翻到末页的同一次滑动误计确认）。 */
+    private fun canScrollTowardReading(rv: RecyclerView, goNext: Boolean): Boolean {
+        val vertical = isWebtoon || readMode == "v"
+        return when {
+            vertical -> rv.canScrollVertically(if (goNext) 1 else -1)
+            r2l -> rv.canScrollHorizontally(if (goNext) -1 else 1)
+            else -> rv.canScrollHorizontally(if (goNext) 1 else -1)
+        }
+    }
+
+    private fun isCurrentPageZoomed(): Boolean {
+        if (isWebtoon) return false
+        if (notUseVP) {
+            return mBinding.vone.root.findViewById<ScaleImageView>(R.id.onei)?.isZoomed == true
+        }
+        val rv = mBinding.vp.getChildAt(0) as? RecyclerView ?: return false
+        val holder = rv.findViewHolderForAdapterPosition(mBinding.vp.currentItem) ?: return false
+        return holder.itemView.findViewById<ScaleImageView>(R.id.onei)?.isZoomed == true
+    }
+
+    private fun handleEdgeDrag(rv: RecyclerView, dx: Float, dy: Float) {
+        if (isCurrentPageZoomed()) return
+        val vertical = isWebtoon || readMode == "v"
+        val towardEnd = when {
+            vertical -> dy < -2f
+            r2l -> dx > 2f
+            else -> dx < -2f
+        }
+        val towardStart = when {
+            vertical -> dy > 2f
+            r2l -> dx < -2f
+            else -> dx > 2f
+        }
+        if (!towardEnd && !towardStart) return
+        val goNext = towardEnd
+        // 必须页码/几何已在边界，且列表该方向已不能再滚（真越界）
+        if (!atChapterEdge(goNext) || canScrollTowardReading(rv, goNext)) return
+        val mag = if (vertical) abs(dy) else abs(dx)
+        val signed = if (goNext) mag else -mag
+        if (tryAcceptEdgeOverscroll(
+                signed,
+                atChapterEdge = { dir -> atChapterEdge(dir) && !canScrollTowardReading(rv, dir) },
+                gate = edgeGate,
+            )
+        ) {
+            pagesManager.turnReading(goNext, scrollStyle = true)
+        }
     }
 
     private fun prepareIdBtVolTurn() {
@@ -584,6 +709,7 @@ class ViewMangaActivity : ToolsBoxActivity() {
     }
 
     override fun onDestroy() {
+        if (::pagesManager.isInitialized) pagesManager.clearEdgeHints()
         tt.canDo = false
         handler.removeCallbacksAndMessages(null)
         super.onDestroy()
@@ -623,10 +749,7 @@ class ViewMangaActivity : ToolsBoxActivity() {
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
             val iv = LayoutInflater.from(parent.context)
                 .inflate(R.layout.page_webtoon_imgview, parent, false) as ImageView
-            iv.setOnClickListener {
-                val pm = PagesManager(WeakReference(this@ViewMangaActivity))
-                pm.manageInfo()
-            }
+            iv.setOnClickListener { pagesManager.manageInfo() }
             return VH(iv)
         }
 
@@ -756,6 +879,7 @@ class ViewMangaActivity : ToolsBoxActivity() {
 
     companion object {
         var va: WeakReference<ViewMangaActivity>? = null
+        private const val EDGE_OVERSCROLL_TAG = "edge_overscroll"
 
         // Intent extra 键名常量
         const val EXTRA_TITLE = "title"

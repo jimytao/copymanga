@@ -15,8 +15,8 @@ import android.view.GestureDetector.SimpleOnGestureListener
 import android.view.MotionEvent
 import android.widget.ImageView
 import top.fumiama.copymangaweb.activity.ViewMangaActivity
-import top.fumiama.copymangaweb.tool.PagesManager
-import java.lang.ref.WeakReference
+import top.fumiama.copymangaweb.tool.ReaderTapClassifier
+import top.fumiama.copymangaweb.tool.ReaderTapZone
 import java.util.*
 import kotlin.math.sqrt
 
@@ -672,29 +672,37 @@ class ScaleImageView : ImageView {
                 return true
             }
 
-            var v :WeakReference<ViewMangaActivity>? = null
-            var pm:PagesManager? = null
             override fun onSingleTapConfirmed(event: MotionEvent): Boolean {
-                if(v == null) {
-                    v = ViewMangaActivity.va
-                    v?.let { pm = PagesManager(it) }
-                }
                 //触发点击
                 if (mOnClickListener != null) {
                     mOnClickListener!!.onClick(this@ScaleImageView)
                 }
-                (event.x / width).let {
-                    when {
-                        it <= 1.0 / 3.0 -> pm?.toPreviousPage()
-                        it <= 2.0 / 3.0 -> pm?.manageInfo()
-                        else -> pm?.toNextPage()
-                    }
+                val act = ViewMangaActivity.va?.get() ?: return true
+                val pm = act.pagesManager
+                val w = width.takeIf { it > 0 } ?: return true
+                val h = height.takeIf { it > 0 } ?: return true
+                when (
+                    ReaderTapClassifier.classify(
+                        xFrac = event.x / w,
+                        yFrac = event.y / h,
+                        mode = act.readMode,
+                        r2l = act.r2l,
+                    )
+                ) {
+                    ReaderTapZone.PREV -> pm.turnReading(goNext = false)
+                    ReaderTapZone.NEXT -> pm.turnReading(goNext = true)
+                    ReaderTapZone.MENU -> pm.manageInfo()
+                    ReaderTapZone.NONE -> Unit
                 }
                 return true
             }
         })
     private val isBig: Boolean
         get() = getMatrixScale(mOuterMatrix)[0] > 1f
+
+    /** 供阅读器判断放大中是否应锁定越界换章。 */
+    val isZoomed: Boolean
+        get() = isBig
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {

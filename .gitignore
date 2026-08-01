@@ -18,3 +18,7 @@ app/signing.properties
 *.jks
 *.keystore
 CLAUDE.md
+
+AGENTS.md
+workflow.md
+
