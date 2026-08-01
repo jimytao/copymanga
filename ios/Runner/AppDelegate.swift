@@ -4,6 +4,9 @@ import MediaPlayer
 import UIKit
 
 /// iOS 无公开音量键 API；通过 MPVolumeView + outputVolume 观察实现翻页（阅读类 App 常用做法）。
+///
+/// 策略：进入时记下用户音量；阅读中把工作点钳在 [0.15, 0.85] 以便总能检测到按键；
+/// 每次按键后拉回工作点；退到后台/关掉功能时立刻还原（适配「回桌面再划掉后台」）。
 private final class IOSVolumeKeyHandler: NSObject {
   private let channel: FlutterMethodChannel
   private var enabled = false
@@ -11,6 +14,19 @@ private final class IOSVolumeKeyHandler: NSObject {
   private var observing = false
   private var lastVolume: Float = 0.5
   private var resettingVolume = false
+  private var resetWorkItem: DispatchWorkItem?
+
+  /// 进入阅读器时的系统音量，退出/进后台时还原
+  private var savedUserVolume: Float = 0.5
+  /// 阅读中用于检测按键的锚点（避免顶/底无 delta）
+  private var anchorVolume: Float = 0.5
+  /// 是否曾真正开启过（避免未开启时 disable 误改系统音量）
+  private var didCaptureVolume = false
+  /// 已因进后台还原过，前台再重新武装
+  private var suspendedForBackground = false
+
+  private let minAnchor: Float = 0.15
+  private let maxAnchor: Float = 0.85
 
   init(messenger: FlutterBinaryMessenger) {
     channel = FlutterMethodChannel(name: "cm/volkeys", binaryMessenger: messenger)
@@ -29,15 +45,59 @@ private final class IOSVolumeKeyHandler: NSObject {
         result(FlutterMethodNotImplemented)
       }
     }
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(appWillResignActive),
+      name: UIApplication.willResignActiveNotification,
+      object: nil
+    )
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(appDidBecomeActive),
+      name: UIApplication.didBecomeActiveNotification,
+      object: nil
+    )
   }
 
   private func setEnabled(_ on: Bool) {
-    enabled = on
     if on {
-      startObserving()
+      enabled = true
+      suspendedForBackground = false
+      captureAndArm(from: AVAudioSession.sharedInstance().outputVolume)
     } else {
-      stopObserving()
+      enabled = false
+      suspendedForBackground = false
+      if didCaptureVolume {
+        didCaptureVolume = false
+        // 先还原用户音量，再拆观察
+        resetVolume(to: savedUserVolume, immediate: true, teardownAfter: true)
+      } else {
+        stopObserving()
+      }
     }
+  }
+
+  private func captureAndArm(from current: Float) {
+    savedUserVolume = current
+    didCaptureVolume = true
+    anchorVolume = min(max(current, minAnchor), maxAnchor)
+    startObserving()
+    resetVolume(to: anchorVolume, immediate: true, teardownAfter: false)
+  }
+
+  /// 回桌面 / 进多任务：立刻还原音量。之后即使用户划掉 App，音量也已是进入前的值。
+  @objc private func appWillResignActive() {
+    guard enabled, didCaptureVolume, !suspendedForBackground else { return }
+    suspendedForBackground = true
+    // 同步写回，避免「回桌面后立刻划掉」时 async 还原来不及执行
+    resetVolume(to: savedUserVolume, immediate: true, teardownAfter: false, preferSync: true)
+  }
+
+  /// 回到前台且仍开着音量翻页：按当前系统音量重新武装锚点。
+  @objc private func appDidBecomeActive() {
+    guard enabled, didCaptureVolume, suspendedForBackground else { return }
+    suspendedForBackground = false
+    captureAndArm(from: AVAudioSession.sharedInstance().outputVolume)
   }
 
   private func startObserving() {
@@ -71,12 +131,23 @@ private final class IOSVolumeKeyHandler: NSObject {
     window?.addSubview(view)
   }
 
+  private func findVolumeSlider(in view: UIView) -> UISlider? {
+    if let slider = view as? UISlider { return slider }
+    for sub in view.subviews {
+      if let found = findVolumeSlider(in: sub) { return found }
+    }
+    return nil
+  }
+
   private func stopObserving() {
     guard observing else { return }
+    resetWorkItem?.cancel()
+    resetWorkItem = nil
     AVAudioSession.sharedInstance().removeObserver(self, forKeyPath: "outputVolume")
     observing = false
     volumeView?.removeFromSuperview()
     volumeView = nil
+    resettingVolume = false
   }
 
   override func observeValue(
@@ -85,38 +156,105 @@ private final class IOSVolumeKeyHandler: NSObject {
     change: [NSKeyValueChangeKey: Any]?,
     context: UnsafeMutableRawPointer?
   ) {
-    guard enabled, keyPath == "outputVolume", !resettingVolume else { return }
+    // 挂起后台期间不翻页、不把音量再拉回锚点
+    guard enabled, !suspendedForBackground, keyPath == "outputVolume", !resettingVolume else { return }
     let newVolume = AVAudioSession.sharedInstance().outputVolume
     if newVolume > lastVolume + 0.001 {
       channel.invokeMethod("volUp", arguments: nil)
     } else if newVolume < lastVolume - 0.001 {
       channel.invokeMethod("volDown", arguments: nil)
+    } else {
+      lastVolume = newVolume
+      return
     }
     lastVolume = newVolume
-    if newVolume <= 0.01 || newVolume >= 0.99 {
-      resetVolume(to: 0.5)
+    resetVolume(to: anchorVolume, immediate: false, teardownAfter: false)
+  }
+
+  private func finishResetWindow(teardownAfter: Bool) {
+    lastVolume = AVAudioSession.sharedInstance().outputVolume
+    resettingVolume = false
+    if teardownAfter {
+      stopObserving()
     }
   }
 
-  private func resetVolume(to value: Float) {
-    ensureVolumeViewAttached()
-    guard let view = volumeView else { return }
-    resettingVolume = true
-    DispatchQueue.main.async { [weak self] in
+  private func applySliderValue(_ value: Float, in view: UIView) -> Bool {
+    guard let slider = findVolumeSlider(in: view) else { return false }
+    slider.value = value
+    lastVolume = value
+    return true
+  }
+
+  private func resetVolume(
+    to value: Float,
+    immediate: Bool,
+    teardownAfter: Bool,
+    preferSync: Bool = false
+  ) {
+    resetWorkItem?.cancel()
+    let work = DispatchWorkItem { [weak self] in
       guard let self else { return }
-      defer { self.resettingVolume = false }
+      // teardown（关闭功能）时允许 enabled==false；后台还原时 enabled 仍为 true
+      if !teardownAfter && !self.enabled && !self.suspendedForBackground { return }
       self.ensureVolumeViewAttached()
-      for subview in view.subviews {
-        if let slider = subview as? UISlider {
-          slider.value = value
-          self.lastVolume = value
-          break
+      guard let view = self.volumeView else {
+        if teardownAfter { self.stopObserving() }
+        return
+      }
+      self.resettingVolume = true
+      if self.applySliderValue(value, in: view) {
+        if preferSync {
+          // 进后台路径：立刻结束忽略窗，不依赖后续 async
+          self.finishResetWindow(teardownAfter: teardownAfter)
+        } else {
+          DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) { [weak self] in
+            self?.finishResetWindow(teardownAfter: teardownAfter)
+          }
+        }
+        return
+      }
+      if preferSync {
+        // 同步路径找不到 slider 时再异步重试一次
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+          guard let self else { return }
+          self.ensureVolumeViewAttached()
+          if let v = self.volumeView {
+            self.resettingVolume = true
+            _ = self.applySliderValue(value, in: v)
+          }
+          self.finishResetWindow(teardownAfter: teardownAfter)
+        }
+        return
+      }
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
+        guard let self else { return }
+        if !teardownAfter && !self.enabled && !self.suspendedForBackground { return }
+        self.ensureVolumeViewAttached()
+        guard let v = self.volumeView else {
+          self.finishResetWindow(teardownAfter: teardownAfter)
+          return
+        }
+        self.resettingVolume = true
+        _ = self.applySliderValue(value, in: v)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) { [weak self] in
+          self?.finishResetWindow(teardownAfter: teardownAfter)
         }
       }
+    }
+    resetWorkItem = work
+    if preferSync && Thread.isMainThread {
+      work.perform()
+    } else if immediate {
+      DispatchQueue.main.async(execute: work)
+    } else {
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: work)
     }
   }
 
   deinit {
+    NotificationCenter.default.removeObserver(self)
+    resetWorkItem?.cancel()
     if observing {
       AVAudioSession.sharedInstance().removeObserver(self, forKeyPath: "outputVolume")
     }

@@ -71,8 +71,10 @@ class _ReaderPageState extends State<ReaderPage> {
   bool _pageZoomed = false;
 
   /// 双指按下时立刻锁翻页，避免捏合起步被 PageView 抢走（体感「不灵敏」）
-  int _pointerCount = 0;
+  /// value 为该 pointer 最近一次 down/move/up 时间；超时未更新视为幽灵 id。
+  final Map<int, DateTime> _activePointers = {};
   bool _multiTouch = false;
+  static const _pointerStaleMs = 1000;
 
   // 信息栏时钟
   Timer? _clockTimer;
@@ -211,6 +213,7 @@ class _ReaderPageState extends State<ReaderPage> {
       _pageZoomed = false;
     });
     _edgeGuard.clear();
+    _resetPointerTracking();
     _initChapter();
   }
 
@@ -360,10 +363,14 @@ class _ReaderPageState extends State<ReaderPage> {
 
   /// 翻页到头继续翻 → 提示一次 → 再翻切章（对应原生版 doubleTapToast 逻辑）
   bool _handleOverscroll(OverscrollNotification n) {
-    if (n.overscroll.abs() < 8) return false;
-    if (!_edgeGate.allow()) return false;
-    final towardEnd = n.overscroll > 0;
-    _handleChapterEdgeScroll(towardEnd);
+    if (!tryAcceptEdgeOverscroll(
+      overscroll: n.overscroll,
+      atChapterEdge: _atChapterEdge,
+      gate: _edgeGate,
+    )) {
+      return false;
+    }
+    _handleChapterEdgeScroll(n.overscroll > 0);
     return false;
   }
 
@@ -381,17 +388,16 @@ class _ReaderPageState extends State<ReaderPage> {
     final m = n.metrics;
 
     if (delta > 0 && m.pixels >= m.maxScrollExtent - 2) {
-      if (!_edgeGate.allow()) return false;
+      if (!_atChapterEdge(true) || !_edgeGate.allow()) return false;
       _handleChapterEdgeScroll(true);
     } else if (delta < 0 && m.pixels <= m.minScrollExtent + 2) {
-      if (!_edgeGate.allow()) return false;
+      if (!_atChapterEdge(false) || !_edgeGate.allow()) return false;
       _handleChapterEdgeScroll(false);
     }
     return false;
   }
 
   void _handleChapterEdgeScroll(bool towardEnd) {
-    if (!_atChapterEdge(towardEnd)) return;
     final hasAdjacent =
         (towardEnd ? _data.nextChapterUrl : _data.previousChapterUrl) != null;
     _applyEdgeOutcome(
@@ -494,6 +500,7 @@ class _ReaderPageState extends State<ReaderPage> {
       _readMode = next;
       _pageZoomed = false;
     });
+    _resetPointerTracking();
     WidgetsBinding.instance.addPostFrameCallback((_) => _jumpTo(currentPage));
   }
 
@@ -581,8 +588,8 @@ class _ReaderPageState extends State<ReaderPage> {
     if (_isWebtoon) {
       return Listener(
         onPointerDown: _onEdgePointerDown,
-        onPointerUp: (_) => _onPointerLeave(),
-        onPointerCancel: (_) => _onPointerLeave(),
+        onPointerUp: (e) => _onPointerLeave(e),
+        onPointerCancel: (e) => _onPointerLeave(e),
         child: NotificationListener<ScrollNotification>(
           onNotification: _handleScrollNotification,
           child: ZoomableWebtoonView(
@@ -601,14 +608,9 @@ class _ReaderPageState extends State<ReaderPage> {
     final lockPage =
         _pageZoomed || _multiTouch;
     return Listener(
-      onPointerDown: (e) {
-        _onEdgePointerDown(e);
-        if (_pointerCount >= 2 && !_multiTouch) {
-          setState(() => _multiTouch = true);
-        }
-      },
-      onPointerUp: (_) => _onPointerLeave(),
-      onPointerCancel: (_) => _onPointerLeave(),
+      onPointerDown: _onEdgePointerDown,
+      onPointerUp: (e) => _onPointerLeave(e),
+      onPointerCancel: (e) => _onPointerLeave(e),
       child: NotificationListener<ScrollNotification>(
         onNotification: _handleScrollNotification,
         child: PageView.builder(
@@ -634,17 +636,42 @@ class _ReaderPageState extends State<ReaderPage> {
     );
   }
 
-  void _onEdgePointerDown(PointerDownEvent _) {
-    _pointerCount++;
-    if (_pointerCount == 1) {
-      _edgeGate.beginGesture();
+  void _onEdgePointerDown(PointerDownEvent e) {
+    final now = DateTime.now();
+    // 只剔除超时未更新的幽灵 id；保留仍在窗口内的其它指，避免慢速双指捏合被误清
+    final before = _activePointers.length;
+    _activePointers.removeWhere(
+      (_, t) => now.difference(t).inMilliseconds > _pointerStaleMs,
+    );
+    final clearedStale = before != _activePointers.length;
+    if (clearedStale && _activePointers.length < 2 && _multiTouch) {
+      _multiTouch = false;
+    }
+    _activePointers[e.pointer] = now;
+    // 每次按下都重新武装，避免漏收 pointerUp 导致 gate 永久哑火
+    _edgeGate.beginGesture();
+    if (_activePointers.length >= 2 && !_multiTouch) {
+      setState(() => _multiTouch = true);
+    } else if (clearedStale && !_multiTouch) {
+      setState(() {});
     }
   }
 
-  void _onPointerLeave() {
-    _pointerCount = (_pointerCount - 1).clamp(0, 20);
-    if (_pointerCount < 2 && _multiTouch) {
+  void _onPointerLeave(PointerEvent e) {
+    _activePointers.remove(e.pointer);
+    if (_activePointers.isEmpty) {
+      if (_multiTouch) setState(() => _multiTouch = false);
+      return;
+    }
+    if (_activePointers.length < 2 && _multiTouch) {
       setState(() => _multiTouch = false);
+    }
+  }
+
+  void _resetPointerTracking() {
+    _activePointers.clear();
+    if (_multiTouch) {
+      _multiTouch = false;
     }
   }
 

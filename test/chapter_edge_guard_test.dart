@@ -95,4 +95,83 @@ void main() {
       expect(gate.allow(), isFalse);
     });
   });
+
+  group('tryAcceptEdgeOverscroll', () {
+    test('未到章节边界时不消耗 gate，同手势稍后仍可放行', () {
+      final gate = EdgeGestureGate();
+      gate.beginGesture();
+
+      expect(
+        tryAcceptEdgeOverscroll(
+          overscroll: 12,
+          atChapterEdge: (_) => false,
+          gate: gate,
+        ),
+        isFalse,
+      );
+      expect(
+        tryAcceptEdgeOverscroll(
+          overscroll: 12,
+          atChapterEdge: (_) => true,
+          gate: gate,
+        ),
+        isTrue,
+      );
+    });
+
+    test('已在边界时同手势只放行一次', () {
+      final gate = EdgeGestureGate();
+      gate.beginGesture();
+      expect(
+        tryAcceptEdgeOverscroll(
+          overscroll: 12,
+          atChapterEdge: (_) => true,
+          gate: gate,
+        ),
+        isTrue,
+      );
+      expect(
+        tryAcceptEdgeOverscroll(
+          overscroll: 12,
+          atChapterEdge: (_) => true,
+          gate: gate,
+        ),
+        isFalse,
+      );
+    });
+
+    test('overscroll 过小直接拒绝且不消耗 gate', () {
+      final gate = EdgeGestureGate();
+      gate.beginGesture();
+      expect(
+        tryAcceptEdgeOverscroll(
+          overscroll: 4,
+          atChapterEdge: (_) => true,
+          gate: gate,
+        ),
+        isFalse,
+      );
+      expect(
+        tryAcceptEdgeOverscroll(
+          overscroll: 12,
+          atChapterEdge: (_) => true,
+          gate: gate,
+        ),
+        isTrue,
+      );
+    });
+
+    test('默认阈值 6：介于旧阈值与轻滑之间仍可放行', () {
+      final gate = EdgeGestureGate();
+      gate.beginGesture();
+      expect(
+        tryAcceptEdgeOverscroll(
+          overscroll: 6.5,
+          atChapterEdge: (_) => true,
+          gate: gate,
+        ),
+        isTrue,
+      );
+    });
+  });
 }

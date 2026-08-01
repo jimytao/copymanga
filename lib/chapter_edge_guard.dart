@@ -53,3 +53,17 @@ class EdgeGestureGate {
     return true;
   }
 }
+
+/// 越界 overscroll 是否计为一次章节边界手势。
+/// 必须先确认方向对应边界，再消耗 [gate]，避免方向抖动白白吞掉本手势配额。
+bool tryAcceptEdgeOverscroll({
+  required double overscroll,
+  required bool Function(bool towardEnd) atChapterEdge,
+  required EdgeGestureGate gate,
+  double minAbs = 6,
+}) {
+  if (overscroll.abs() < minAbs) return false;
+  final towardEnd = overscroll > 0;
+  if (!atChapterEdge(towardEnd)) return false;
+  return gate.allow();
+}

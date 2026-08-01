@@ -28,7 +28,7 @@ class VolumeKeys {
     try {
       await _channel.invokeMethod('setEnabled', true);
     } on MissingPluginException {
-      // iOS 等平台无此通道，忽略
+      // 测试/无原生实现时忽略
     }
   }
 
@@ -38,7 +38,7 @@ class VolumeKeys {
     try {
       await _channel.invokeMethod('setEnabled', false);
     } on MissingPluginException {
-      // ignore
+      // 测试/无原生实现时忽略
     }
   }
 }
