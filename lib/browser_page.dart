@@ -11,6 +11,7 @@ import 'chapter_data.dart';
 import 'downloader.dart';
 import 'download_select_page.dart';
 import 'downloads_page.dart';
+import 'reader_gesture_debug.dart';
 import 'reader_page.dart';
 import 'settings.dart';
 import 'settings_page.dart';
@@ -65,6 +66,8 @@ class _BrowserPageState extends State<BrowserPage> {
   // 章节流转状态机
   bool _pendingOpen = false;
   String? _pendingUrl; // 待打开章节的 URL（含 uuid），用于校验迟到的收图结果
+  int? _pendingChapterRequestId;
+  String? _pendingReaderInstanceId;
   String? _prefetchTargetUrl;
   ChapterData? _prefetchedData;
   String? _prefetchedForUrl;
@@ -81,6 +84,7 @@ class _BrowserPageState extends State<BrowserPage> {
   /// 阅读器打开且正在收图/预取时，把隐藏 WebView 提到 Stack 顶（1×1）避免 rAF 被节流
   bool _hiddenOnTop = false;
   final GlobalKey _hiddenWebViewKey = GlobalKey();
+
   /// 可见 WebView 必须稳定：隐藏页置顶/还原时若槽位前插且无 Key，iOS 会重建并
   /// 重新加载 initialUrl（表现为关阅读器跳回首页）；Android 有时幸免。
   final GlobalKey _visibleWebViewKey = GlobalKey();
@@ -478,18 +482,45 @@ try {
   void _onChapterDataArrived(ChapterData data) {
     // 校验：预取/旧章结果可能在用户请求另一章之后才迟到，uuid 对不上就丢弃。
     if (_pendingOpen) {
-      if (!_uuidMatches(_pendingUrl, data)) return;
+      if (!_uuidMatches(_pendingUrl, data)) {
+        if (ReaderGestureDiagnostics.enabled) {
+          ReaderGestureDiagnostics.instance.onStaleChapterResultDiscarded(
+            chapterRequestId: _pendingChapterRequestId ?? 0,
+            readerInstanceId: _pendingReaderInstanceId,
+            reason: 'uuidMismatch',
+          );
+        }
+        return;
+      }
       _pendingOpen = false;
       _pendingUrl = null;
+      final reqId = _pendingChapterRequestId;
+      final readerId = _pendingReaderInstanceId;
+      _pendingChapterRequestId = null;
+      _pendingReaderInstanceId = null;
       _clearPrefetchState();
       _setHiddenOnTop(false);
       _setLoading(false);
       _readerLoading.value = null;
+      if (ReaderGestureDiagnostics.enabled && reqId != null) {
+        ReaderGestureDiagnostics.instance.onChapterLoadSucceeded(
+          chapterRequestId: reqId,
+          readerInstanceId: readerId,
+        );
+      }
       _openOrSwapReader(data);
       return;
     }
     if (_prefetchTargetUrl != null) {
-      if (!_uuidMatches(_prefetchTargetUrl, data)) return;
+      if (!_uuidMatches(_prefetchTargetUrl, data)) {
+        if (ReaderGestureDiagnostics.enabled) {
+          ReaderGestureDiagnostics.instance.onStaleChapterResultDiscarded(
+            chapterRequestId: 0,
+            reason: 'prefetchUuidMismatch',
+          );
+        }
+        return;
+      }
       _prefetchedData = data;
       _prefetchedForUrl = _prefetchTargetUrl;
       _prefetchTargetUrl = null;
@@ -551,7 +582,14 @@ try {
     }
   }
 
-  void _requestChapter(String mobileUrl, {bool? goNext}) {
+  void _requestChapter(
+    String mobileUrl, {
+    bool? goNext,
+    int? chapterRequestId,
+    String? readerInstanceId,
+    String? inputSource,
+    String? triggeringGestureSessionId,
+  }) {
     // 在线阅读：先唤醒表页再点「上一话/下一话」，让 SPA 历史跟上（对齐 Kotlin）。
     // 注意：盖住时 clickClass 曾把 H5 打乱；先 resumeTimers，且 JS 侧做元素存在检查。
     if (goNext != null && !mobileUrl.startsWith('local://')) {
@@ -559,17 +597,48 @@ try {
       unawaited(_syncVisibleChapterNav(goNext));
     }
     if (_prefetchedData != null && _prefetchedForUrl == mobileUrl) {
+      final reqId =
+          chapterRequestId ?? ReaderGestureDiagnostics.newChapterRequestId();
+      final readerId = readerInstanceId;
+      if (ReaderGestureDiagnostics.enabled) {
+        ReaderGestureDiagnostics.instance.onChapterLoadStarted(
+          chapterRequestId: reqId,
+          readerInstanceId: readerId,
+          triggeringGestureSessionId: triggeringGestureSessionId,
+          inputSource: inputSource ?? 'prefetchHit',
+        );
+      }
       final data = _prefetchedData!;
       _clearPrefetchState();
       _setHiddenOnTop(false);
       _openOrSwapReader(data);
+      if (ReaderGestureDiagnostics.enabled) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          ReaderGestureDiagnostics.instance.onChapterLoadSucceeded(
+            chapterRequestId: reqId,
+            readerInstanceId: readerId,
+          );
+        });
+      }
       return;
     }
     final pc = UrlManager.toPcUrl(mobileUrl);
     if (pc.isEmpty) return;
+    final reqId =
+        chapterRequestId ?? ReaderGestureDiagnostics.newChapterRequestId();
+    _pendingChapterRequestId = reqId;
+    _pendingReaderInstanceId = readerInstanceId;
     _pendingOpen = true;
     _pendingUrl = mobileUrl;
     _readerLoading.value = '正在收集图片…';
+    if (ReaderGestureDiagnostics.enabled) {
+      ReaderGestureDiagnostics.instance.onChapterLoadStarted(
+        chapterRequestId: reqId,
+        readerInstanceId: readerInstanceId,
+        triggeringGestureSessionId: triggeringGestureSessionId,
+        inputSource: inputSource,
+      );
+    }
     // 不再挂接可能已节流/僵死的预取：用户显式切章时强制重启隐藏 WebView
     _prefetchTargetUrl = null;
     _armStallWatch();
@@ -589,7 +658,8 @@ try {
     } catch (_) {}
     try {
       await c.evaluateJavascript(
-        source: '''
+        source:
+            '''
 try {
   var els = document.getElementsByClassName("comicControlBottomTopClick");
   if (els && els.length > $index) els[$index].click();
@@ -640,10 +710,21 @@ try {
         t.cancel();
         _pendingOpen = false;
         _pendingUrl = null;
+        final reqId = _pendingChapterRequestId;
+        final readerId = _pendingReaderInstanceId;
+        _pendingChapterRequestId = null;
+        _pendingReaderInstanceId = null;
         _clearPrefetchState();
         _setHiddenOnTop(false);
         _readerLoading.value = null;
         unawaited(_abortHiddenLoad());
+        if (ReaderGestureDiagnostics.enabled && reqId != null) {
+          ReaderGestureDiagnostics.instance.onChapterLoadFailed(
+            chapterRequestId: reqId,
+            reason: 'stallTimeout',
+            readerInstanceId: readerId,
+          );
+        }
         if (mounted) {
           setState(() => _loadingChapter = false);
           ScaffoldMessenger.of(context).showSnackBar(

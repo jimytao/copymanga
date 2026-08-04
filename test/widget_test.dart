@@ -4,7 +4,8 @@ import 'package:copymanga_flutter/chapter_data.dart';
 
 void main() {
   test('ChapterData 解析 h.js 收图协议', () {
-    const raw = '第1话 abcd-uuid\n'
+    const raw =
+        '第1话 abcd-uuid\n'
         'https://site/comicContent/slug/next-uuid\n'
         'null\n'
         'https://img/1.webp\n'

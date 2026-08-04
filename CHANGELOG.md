@@ -5,6 +5,15 @@
 
 ---
 
+## 2026-08-04 — v1.0.12：正式手势仲裁 + 章节边界双滑状态机
+
+- **横滑根因修复**：未缩放时不再挂载 `InteractiveViewer`；由 `ReaderGestureCoordinator` 统一仲裁单指翻页 / 双指缩放 / 放大平移，避免 Scale 识别器与 PageView 竞争（Android 快滑约 43% 无 scrollStart 的主因）。
+- **章节双滑**：新增 `ChapterEdgeFsm`，以独立 swipe 为主输入、overscroll 为辅助；同 `gestureSessionId` 去重，带 `chapterRequestId`。
+- **方向映射**：`ReaderReadingDirection` 集中处理物理滑动 ↔ 页/章意图（r2l/reverse）。
+- **回滚**：`--dart-define=READER_LEGACY_GESTURE_ROUTING=true` 恢复旧 InteractiveViewer + ChapterEdgeGuard 路径。
+- **文档**：`docs/reader_gesture_architecture.md`、`docs/reader_gesture_implementation_report.md`。
+- **版本**：`1.0.12+13`。
+
 ## 2026-08-01 — v1.0.11：修复边界滑动与 iOS 音量键偶发失效
 
 - **滑动换章哑火**：指针改用 id 集合跟踪，每次 `pointerDown` 重新武装 `EdgeGestureGate`，避免漏收 up/cancel 后 gate 永久不放行。

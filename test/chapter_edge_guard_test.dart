@@ -19,10 +19,7 @@ void main() {
     test('无邻章时立即到头，且不置 hint', () {
       final guard = ChapterEdgeGuard();
 
-      expect(
-        guard.onEdge(true, hasAdjacent: false),
-        ChapterEdgeOutcome.atEnd,
-      );
+      expect(guard.onEdge(true, hasAdjacent: false), ChapterEdgeOutcome.atEnd);
       // 之后即使有邻章，仍应是首次确认，而非直接换章
       expect(
         guard.onEdge(true, hasAdjacent: true),

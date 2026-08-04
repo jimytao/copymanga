@@ -70,7 +70,8 @@ class _SettingsPageState extends State<SettingsPage> {
     if (mounted) {
       setState(() => _cacheText = '已清理完成（0 B）');
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('缓存已清理'), duration: Duration(seconds: 2)));
+        const SnackBar(content: Text('缓存已清理'), duration: Duration(seconds: 2)),
+      );
     }
   }
 
@@ -196,9 +197,12 @@ class _SettingsPageState extends State<SettingsPage> {
                 await UrlManager.setManualUrl(v);
                 setState(() {});
                 if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
                       content: Text('已手动切换源站，重启 App 生效'),
-                      duration: Duration(seconds: 2)));
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
                 }
               }
             },
@@ -223,9 +227,12 @@ class _SettingsPageState extends State<SettingsPage> {
               final best = await UrlManager.clearManualUrl();
               setState(() {});
               if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
                     content: Text('已恢复自动模式，当前使用 $best'),
-                    duration: const Duration(seconds: 2)));
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
               }
             },
           ),
@@ -236,7 +243,8 @@ class _SettingsPageState extends State<SettingsPage> {
                 ? const SizedBox(
                     width: 20,
                     height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2))
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
                 : const Icon(Icons.speed),
             onTap: _probing ? null : _reprobe,
           ),
@@ -247,8 +255,9 @@ class _SettingsPageState extends State<SettingsPage> {
             subtitle: const Text('管理、阅读或删除已下载的漫画'),
             leading: const Icon(Icons.folder_open),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const DownloadsPage())),
+            onTap: () => Navigator.of(
+              context,
+            ).push(MaterialPageRoute(builder: (_) => const DownloadsPage())),
           ),
           ListTile(
             title: const Text('清理缓存'),
@@ -270,11 +279,14 @@ class _SectionHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-      child: Text(text,
-          style: TextStyle(
-              color: Theme.of(context).colorScheme.primary,
-              fontWeight: FontWeight.bold,
-              fontSize: 13)),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: Theme.of(context).colorScheme.primary,
+          fontWeight: FontWeight.bold,
+          fontSize: 13,
+        ),
+      ),
     );
   }
 }

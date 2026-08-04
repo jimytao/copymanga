@@ -83,12 +83,14 @@ class AppSystemUi {
             ? SystemUiMode.immersiveSticky
             : SystemUiMode.edgeToEdge,
       );
-      SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
-        statusBarColor: Colors.transparent,
-        // iOS：light = 深色字（浅色底），dark = 浅色字（深色底）
-        statusBarBrightness: dark ? Brightness.dark : Brightness.light,
-        statusBarIconBrightness: dark ? Brightness.light : Brightness.dark,
-      ));
+      SystemChrome.setSystemUIOverlayStyle(
+        SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          // iOS：light = 深色字（浅色底），dark = 浅色字（深色底）
+          statusBarBrightness: dark ? Brightness.dark : Brightness.light,
+          statusBarIconBrightness: dark ? Brightness.light : Brightness.dark,
+        ),
+      );
       return;
     }
     SystemChrome.setEnabledSystemUIMode(
@@ -98,14 +100,17 @@ class AppSystemUi {
           : SystemUiOverlay.values,
     );
     // Android 手势条区域底色跟明暗，避免白网页下露出黑导航底
-    SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: dark ? Brightness.light : Brightness.dark,
-      systemNavigationBarColor: dark ? Colors.black : Colors.white,
-      systemNavigationBarIconBrightness:
-          dark ? Brightness.light : Brightness.dark,
-      systemNavigationBarContrastEnforced: false,
-    ));
+    SystemChrome.setSystemUIOverlayStyle(
+      SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: dark ? Brightness.light : Brightness.dark,
+        systemNavigationBarColor: dark ? Colors.black : Colors.white,
+        systemNavigationBarIconBrightness: dark
+            ? Brightness.light
+            : Brightness.dark,
+        systemNavigationBarContrastEnforced: false,
+      ),
+    );
   }
 
   /// 阅读器：沉浸式隐藏系统栏。

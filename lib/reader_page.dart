@@ -8,8 +8,12 @@ import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'chapter_data.dart';
+import 'chapter_edge_fsm.dart';
 import 'chapter_edge_guard.dart';
 import 'downloader.dart';
+import 'reader_gesture_config.dart';
+import 'reader_gesture_debug.dart';
+import 'reader_reading_direction.dart';
 import 'reader_tap_zones.dart';
 import 'retry_image.dart';
 import 'settings.dart';
@@ -35,7 +39,16 @@ class ReaderPage extends StatefulWidget {
   final ValueNotifier<String?> loadingText;
 
   /// [goNext] 为相邻切章方向；离线本地切换可不传。
-  final void Function(String mobileUrl, {bool? goNext})? onRequestChapter;
+  /// 诊断字段仅 debug 构建由阅读器传入，BrowserPage 可忽略。
+  final void Function(
+    String mobileUrl, {
+    bool? goNext,
+    int? chapterRequestId,
+    String? readerInstanceId,
+    String? inputSource,
+    String? triggeringGestureSessionId,
+  })?
+  onRequestChapter;
   final void Function(String mobileUrl)? onPrefetch;
 
   /// 嵌在 BrowserPage Stack 时由外层关闭；走 Navigator.push 时可空（系统返回）
@@ -45,7 +58,7 @@ class ReaderPage extends StatefulWidget {
   State<ReaderPage> createState() => _ReaderPageState();
 }
 
-class _ReaderPageState extends State<ReaderPage> {
+class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   late ChapterData _data;
 
   // 全生命周期单例：切章/切模式复用同一个控制器。
@@ -66,6 +79,8 @@ class _ReaderPageState extends State<ReaderPage> {
   // 翻页到头再翻/再按切章（对应原生版 isEndL/isEndR + doubleTapToast）
   final _edgeGuard = ChapterEdgeGuard();
   final _edgeGate = EdgeGestureGate();
+  final _edgeFsm = ChapterEdgeFsm();
+  Timer? _edgeArmedTimer;
 
   /// 横/纵模式下当前页已放大：锁定 PageView，把拖动手势留给缩放平移
   bool _pageZoomed = false;
@@ -76,6 +91,16 @@ class _ReaderPageState extends State<ReaderPage> {
   bool _multiTouch = false;
   static const _pointerStaleMs = 1000;
 
+  // 正式路径：独立 swipe 几何累计（不依赖 OverscrollNotification）
+  Offset? _gestureStartPos;
+  Offset _gestureTotalDelta = Offset.zero;
+  DateTime? _gestureStartAt;
+  String? _gestureSessionId;
+  bool _gestureCancelled = false;
+  bool _gestureSawMultiTouch = false;
+  int _gestureStartPage = 1;
+  final Set<String> _edgeAuxConsumedSessions = {};
+
   // 信息栏时钟
   Timer? _clockTimer;
   String _clockText = '';
@@ -83,12 +108,25 @@ class _ReaderPageState extends State<ReaderPage> {
   // 切章代数：丢弃过期的断点恢复/跳页回调，防止快速连切时旧章恢复落到新章上
   int _chapterGen = 0;
 
+  final _diag = ReaderGestureDiagnostics.instance;
+  late final String _readerInstanceId;
+  String _chapterDiagToken = 'none';
+  bool _lastPhysicsLocked = false;
+
+  bool get _useFormalEdge => useFormalReaderGestureRouting;
+
   int get _count => _data.imgUrls.length;
   bool get _isWebtoon => _readMode == 'w';
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _readerInstanceId = ReaderGestureDiagnostics.newReaderInstanceId();
+    _chapterDiagToken = ReaderGestureDiagnostics.newChapterDiagToken();
+    if (ReaderGestureDiagnostics.enabled) {
+      _diag.attachReader(_readerInstanceId);
+    }
     _data = widget.dataNotifier.value;
     widget.dataNotifier.addListener(_onChapterChanged);
     _itemPositionsListener.itemPositions.addListener(_onWebtoonScroll);
@@ -97,18 +135,79 @@ class _ReaderPageState extends State<ReaderPage> {
       VolumeKeys.enable(up: _volBack, down: _volForward);
     }
     _initChapter();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _diag.markInitialized(_readerInstanceId);
+      _syncDiagnosticsContext();
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      if (_useFormalEdge) {
+        _applyFsmResult(
+          _edgeFsm.handle(event: ChapterEdgeFsmEvent.appPaused),
+          scrollStyle: true,
+          inputSource: 'appPaused',
+        );
+      } else {
+        _edgeGuard.clear();
+      }
+    }
+  }
+
+  void _newChapterDiagToken() {
+    if (!ReaderGestureDiagnostics.enabled) return;
+    _chapterDiagToken = ReaderGestureDiagnostics.newChapterDiagToken();
+    _diag.onChapterDiagTokenChanged(_readerInstanceId, _chapterDiagToken);
+  }
+
+  void _syncDiagnosticsContext() {
+    if (!ReaderGestureDiagnostics.enabled || !mounted) return;
+    final mq = MediaQuery.of(context);
+    final lockPage = _pageZoomed || _multiTouch;
+    final physicsType = lockPage
+        ? 'NeverScrollableScrollPhysics'
+        : 'PageScrollPhysics';
+    _diag.bindReaderContext(
+      readerInstanceId: _readerInstanceId,
+      readMode: _readMode,
+      r2l: _r2l,
+      reverse: _readMode == 'h' && _r2l,
+      chapterDiagToken: _chapterDiagToken,
+      pageIndex: _page,
+      pageCount: _count,
+      hasPreviousChapter: _data.previousChapterUrl != null,
+      hasNextChapter: _data.nextChapterUrl != null,
+      pageZoomed: _pageZoomed,
+      multiTouch: _multiTouch,
+      physicsType: physicsType,
+      pageControllerHasClients: _pageController.hasClients,
+      pageControllerPage: _pageController.hasClients
+          ? _pageController.page
+          : null,
+      edgeGuard: _edgeGuard,
+      logicalSize: mq.size,
+      devicePixelRatio: mq.devicePixelRatio,
+    );
+    final locked = lockPage;
+    if (locked != _lastPhysicsLocked) {
+      if (locked) {
+        _diag.onPhysicsLocked(
+          _readerInstanceId,
+          reason: _multiTouch ? 'multiTouch' : 'pageZoomed',
+        );
+      } else {
+        _diag.onPhysicsUnlocked(_readerInstanceId, reason: 'lockReleased');
+      }
+      _lastPhysicsLocked = locked;
+    }
   }
 
   void _volBack() {
     if (_page <= 1) {
-      _applyEdgeOutcome(
-        _edgeGuard.onEdge(
-          false,
-          hasAdjacent: _data.previousChapterUrl != null,
-        ),
-        goNext: false,
-        scrollStyle: false,
-      );
+      _tryAdjacentChapter(false, inputSource: 'volumeKey');
       return;
     }
     if (_isWebtoon) {
@@ -120,14 +219,7 @@ class _ReaderPageState extends State<ReaderPage> {
 
   void _volForward() {
     if (_page >= _count) {
-      _applyEdgeOutcome(
-        _edgeGuard.onEdge(
-          true,
-          hasAdjacent: _data.nextChapterUrl != null,
-        ),
-        goNext: true,
-        scrollStyle: false,
-      );
+      _tryAdjacentChapter(true, inputSource: 'volumeKey');
       return;
     }
     if (_isWebtoon) {
@@ -138,6 +230,11 @@ class _ReaderPageState extends State<ReaderPage> {
   }
 
   void _turnPage(int delta) {
+    _diag.onProgrammaticPageTurn(
+      _readerInstanceId,
+      source: 'turnPage',
+      delta: delta,
+    );
     final target = (_page + delta).clamp(1, _count);
     if (target != _page && _pageController.hasClients) {
       _pageController.animateToPage(
@@ -160,34 +257,139 @@ class _ReaderPageState extends State<ReaderPage> {
       if (_page < _count) {
         _turnPage(1);
         _edgeGuard.clearSide(true);
+        if (_useFormalEdge) {
+          _edgeFsm.handle(event: ChapterEdgeFsmEvent.leftBoundary);
+        }
       } else {
-        _tryAdjacentChapter(true);
+        _tryAdjacentChapter(true, inputSource: 'tapZone');
       }
     } else {
       if (_page > 1) {
         _turnPage(-1);
         _edgeGuard.clearSide(false);
+        if (_useFormalEdge) {
+          _edgeFsm.handle(event: ChapterEdgeFsmEvent.leftBoundary);
+        }
       } else {
-        _tryAdjacentChapter(false);
+        _tryAdjacentChapter(false, inputSource: 'tapZone');
       }
     }
   }
 
-  void _tryAdjacentChapter(bool goNext) {
+  void _tryAdjacentChapter(bool goNext, {required String inputSource}) {
     final hasAdjacent =
         (goNext ? _data.nextChapterUrl : _data.previousChapterUrl) != null;
+    if (_useFormalEdge) {
+      _applyFsmResult(
+        _edgeFsm.handle(
+          event: ChapterEdgeFsmEvent.manualEdgeAction,
+          goNext: goNext,
+          hasAdjacent: hasAdjacent,
+        ),
+        scrollStyle: false,
+        inputSource: inputSource,
+      );
+      return;
+    }
     _applyEdgeOutcome(
       _edgeGuard.onEdge(goNext, hasAdjacent: hasAdjacent),
       goNext: goNext,
       scrollStyle: false,
+      inputSource: inputSource,
     );
+  }
+
+  void _applyFsmResult(
+    ChapterEdgeFsmResult result, {
+    required bool scrollStyle,
+    required String inputSource,
+  }) {
+    _diag.onEdgeStateChanged(
+      _readerInstanceId,
+      state: result.state.name,
+      action: result.action.name,
+      goNext: result.goNext,
+      rejectReason: result.rejectReason,
+      chapterRequestId: result.chapterRequestId,
+    );
+
+    switch (result.action) {
+      case ChapterEdgeFsmAction.none:
+        break;
+      case ChapterEdgeFsmAction.deduplicated:
+        _diag.onChapterSwitchDeduplicated(
+          _readerInstanceId,
+          reason: result.rejectReason,
+          chapterRequestId: result.chapterRequestId,
+        );
+      case ChapterEdgeFsmAction.showAtEnd:
+        _toast('已经到头了~');
+      case ChapterEdgeFsmAction.showConfirmHint:
+        _scheduleEdgeArmedTimeout();
+        if (scrollStyle) {
+          _toast(result.goNext ? '再次滑动加载下一章' : '再次滑动加载上一章');
+        } else {
+          _toast(result.goNext ? '再次按下加载下一章' : '再次按下加载上一章');
+        }
+      case ChapterEdgeFsmAction.requestChapterSwitch:
+        _edgeArmedTimer?.cancel();
+        final reqId =
+            result.chapterRequestId ??
+            ReaderGestureDiagnostics.newChapterRequestId();
+        _diag.onEdgeGuardOutcome(
+          _readerInstanceId,
+          outcome: ChapterEdgeOutcome.openChapter,
+          goNext: result.goNext,
+          scrollStyle: scrollStyle,
+          inputSource: inputSource,
+          chapterRequestId: reqId,
+        );
+        _diag.onAdjacentOpenRequested(
+          _readerInstanceId,
+          goNext: result.goNext,
+          inputSource: inputSource,
+          chapterRequestId: reqId,
+        );
+        _edgeFsm.markWaitingForChapter();
+        _edgeFsm.handle(event: ChapterEdgeFsmEvent.chapterRequestStarted);
+        _openAdjacent(
+          result.goNext,
+          inputSource: inputSource,
+          chapterRequestId: reqId,
+        );
+    }
+  }
+
+  void _scheduleEdgeArmedTimeout() {
+    _edgeArmedTimer?.cancel();
+    _edgeArmedTimer = Timer(kChapterEdgeConfirmWindow, () {
+      if (!mounted) return;
+      _applyFsmResult(
+        _edgeFsm.checkTimeout(),
+        scrollStyle: true,
+        inputSource: 'edgeTimeout',
+      );
+    });
   }
 
   void _applyEdgeOutcome(
     ChapterEdgeOutcome outcome, {
     required bool goNext,
     required bool scrollStyle,
+    required String inputSource,
   }) {
+    int? openChapterRequestId;
+    if (outcome == ChapterEdgeOutcome.openChapter) {
+      openChapterRequestId = ReaderGestureDiagnostics.newChapterRequestId();
+    }
+    _diag.onEdgeGuardOutcome(
+      _readerInstanceId,
+      outcome: outcome,
+      goNext: goNext,
+      scrollStyle: scrollStyle,
+      inputSource: inputSource,
+      chapterRequestId: openChapterRequestId,
+    );
     switch (outcome) {
       case ChapterEdgeOutcome.atEnd:
         _toast('已经到头了~');
@@ -198,7 +400,17 @@ class _ReaderPageState extends State<ReaderPage> {
           _toast(goNext ? '再次按下加载下一章' : '再次按下加载上一章');
         }
       case ChapterEdgeOutcome.openChapter:
-        _openAdjacent(goNext);
+        _diag.onAdjacentOpenRequested(
+          _readerInstanceId,
+          goNext: goNext,
+          inputSource: inputSource,
+          chapterRequestId: openChapterRequestId,
+        );
+        _openAdjacent(
+          goNext,
+          inputSource: inputSource,
+          chapterRequestId: openChapterRequestId,
+        );
     }
   }
 
@@ -213,7 +425,13 @@ class _ReaderPageState extends State<ReaderPage> {
       _pageZoomed = false;
     });
     _edgeGuard.clear();
+    if (_useFormalEdge) {
+      _edgeFsm.handle(event: ChapterEdgeFsmEvent.chapterRequestSucceeded);
+      _edgeFsm.clear();
+    }
+    _edgeArmedTimer?.cancel();
     _resetPointerTracking();
+    _newChapterDiagToken();
     _initChapter();
   }
 
@@ -298,11 +516,20 @@ class _ReaderPageState extends State<ReaderPage> {
   }
 
   void _onPageChanged(int index) {
+    final from = _page;
     setState(() {
       _page = index + 1;
       _pageZoomed = false;
     });
+    _diag.onPageChanged(_readerInstanceId, fromPage: from, toPage: _page);
     _edgeGuard.clear();
+    if (_useFormalEdge) {
+      _applyFsmResult(
+        _edgeFsm.handle(event: ChapterEdgeFsmEvent.pageChanged),
+        scrollStyle: true,
+        inputSource: 'pageChanged',
+      );
+    }
     _maybePrefetch();
     _preloadAround(index);
   }
@@ -310,6 +537,28 @@ class _ReaderPageState extends State<ReaderPage> {
   void _onPageZoomChanged(bool zoomed) {
     if (_pageZoomed == zoomed) return;
     setState(() => _pageZoomed = zoomed);
+    if (zoomed && _useFormalEdge) {
+      _applyFsmResult(
+        _edgeFsm.handle(event: ChapterEdgeFsmEvent.imageScaleStarted),
+        scrollStyle: true,
+        inputSource: 'imageScale',
+      );
+    }
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _syncDiagnosticsContext(),
+    );
+  }
+
+  void _onLocksPageViewChanged(bool locks) {
+    // zoomed 已由 onZoomChanged 锁页；此处只镜像双指即时锁。
+    if (locks && !_pageZoomed && !_multiTouch) {
+      setState(() => _multiTouch = true);
+    } else if (!locks && _multiTouch && !_pageZoomed) {
+      setState(() => _multiTouch = false);
+    }
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _syncDiagnosticsContext(),
+    );
   }
 
   void _onWebtoonScroll() {
@@ -323,6 +572,9 @@ class _ReaderPageState extends State<ReaderPage> {
     if (newPage != _page) {
       setState(() => _page = newPage);
       _edgeGuard.clear();
+      if (_useFormalEdge) {
+        _edgeFsm.handle(event: ChapterEdgeFsmEvent.pageChanged);
+      }
       _maybePrefetch();
       _preloadAround(newPage - 1);
     }
@@ -350,7 +602,11 @@ class _ReaderPageState extends State<ReaderPage> {
     }
   }
 
-  void _openAdjacent(bool goNext) {
+  void _openAdjacent(
+    bool goNext, {
+    required String inputSource,
+    int? chapterRequestId,
+  }) {
     final url = goNext ? _data.nextChapterUrl : _data.previousChapterUrl;
     if (url == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -358,25 +614,103 @@ class _ReaderPageState extends State<ReaderPage> {
       );
       return;
     }
-    widget.onRequestChapter?.call(url, goNext: goNext);
+    final reqId =
+        chapterRequestId ?? ReaderGestureDiagnostics.newChapterRequestId();
+    widget.onRequestChapter?.call(
+      url,
+      goNext: goNext,
+      chapterRequestId: reqId,
+      readerInstanceId: _readerInstanceId,
+      inputSource: inputSource,
+      triggeringGestureSessionId: _diag.currentGestureSessionId(
+        _readerInstanceId,
+      ),
+    );
   }
 
   /// 翻页到头继续翻 → 提示一次 → 再翻切章（对应原生版 doubleTapToast 逻辑）
   bool _handleOverscroll(OverscrollNotification n) {
-    if (!tryAcceptEdgeOverscroll(
+    final towardEnd = ReaderReadingDirection.overscrollTowardEnd(n.overscroll);
+    final atEdge = _atChapterEdge(towardEnd);
+    String rejectReason = 'none';
+    bool accepted = false;
+    if (n.overscroll.abs() < kChapterEdgeAuxOverscrollMinAbs) {
+      rejectReason = 'overscrollBelowMinAbs';
+    } else if (!atEdge) {
+      rejectReason = 'notAtChapterEdge';
+    } else {
+      accepted = tryAcceptEdgeOverscroll(
+        overscroll: n.overscroll,
+        atChapterEdge: _atChapterEdge,
+        gate: _edgeGate,
+      );
+      if (!accepted) rejectReason = 'edgeGateConsumed';
+    }
+    _diag.onOverscroll(
+      _readerInstanceId,
       overscroll: n.overscroll,
-      atChapterEdge: _atChapterEdge,
-      gate: _edgeGate,
-    )) {
+      towardEnd: towardEnd,
+      atChapterEdge: atEdge,
+      accepted: accepted,
+      rejectReason: rejectReason,
+    );
+    if (!accepted) return false;
+
+    if (_useFormalEdge) {
+      // Overscroll 仅作辅助信号；与主路径共用 gestureSessionId 去重。
+      final sessionId =
+          _gestureSessionId ?? _diag.currentGestureSessionId(_readerInstanceId);
+      if (sessionId != null && _edgeAuxConsumedSessions.contains(sessionId)) {
+        _diag.onChapterSwitchDeduplicated(
+          _readerInstanceId,
+          reason: 'auxOverscrollSameSession',
+          chapterRequestId: null,
+        );
+        return false;
+      }
+      if (sessionId != null) _edgeAuxConsumedSessions.add(sessionId);
+      final intent = towardEnd
+          ? ReadingNavIntent.towardNextChapter
+          : ReadingNavIntent.towardPreviousChapter;
+      final hasAdjacent =
+          (towardEnd ? _data.nextChapterUrl : _data.previousChapterUrl) != null;
+      _diag.onEdgeSwipeAccepted(
+        _readerInstanceId,
+        source: 'auxOverscroll',
+        goNext: towardEnd,
+        gestureSessionId: sessionId,
+      );
+      _applyFsmResult(
+        _edgeFsm.handle(
+          event: ChapterEdgeFsmEvent.auxOverscroll,
+          goNext: towardEnd,
+          intent: intent,
+          hasAdjacent: hasAdjacent,
+          gestureSessionId: sessionId,
+          fromAuxOverscroll: true,
+        ),
+        scrollStyle: true,
+        inputSource: 'touchSwipe',
+      );
       return false;
     }
-    _handleChapterEdgeScroll(n.overscroll > 0);
+
+    _handleChapterEdgeScroll(towardEnd);
     return false;
   }
 
   /// 条漫在列表尽头继续滑时可能无 OverscrollNotification；
   /// 仅在「手指仍在拖、且已顶住边界」时用 ScrollUpdate 补检测，避免滑到末页瞬间误提示。
   bool _handleScrollNotification(ScrollNotification n) {
+    if (n.depth == 0) {
+      if (n is ScrollStartNotification) {
+        _diag.onScrollStart(_readerInstanceId, n, pageIndex: _page);
+      } else if (n is ScrollEndNotification) {
+        _diag.onScrollEnd(_readerInstanceId, n, pageIndex: _page);
+      } else if (n is ScrollUpdateNotification) {
+        _diag.onScrollUpdate(_readerInstanceId);
+      }
+    }
     if (n is OverscrollNotification) return _handleOverscroll(n);
     if (!_isWebtoon || n is! ScrollUpdateNotification || n.depth != 0) {
       return false;
@@ -404,6 +738,7 @@ class _ReaderPageState extends State<ReaderPage> {
       _edgeGuard.onEdge(towardEnd, hasAdjacent: hasAdjacent),
       goNext: towardEnd,
       scrollStyle: true,
+      inputSource: 'touchSwipe',
     );
   }
 
@@ -501,6 +836,11 @@ class _ReaderPageState extends State<ReaderPage> {
       _pageZoomed = false;
     });
     _resetPointerTracking();
+    if (_useFormalEdge) {
+      _edgeFsm.handle(event: ChapterEdgeFsmEvent.readingModeChanged);
+    } else {
+      _edgeGuard.clear();
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) => _jumpTo(currentPage));
   }
 
@@ -553,6 +893,14 @@ class _ReaderPageState extends State<ReaderPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _edgeArmedTimer?.cancel();
+    if (_useFormalEdge) {
+      _edgeFsm.handle(event: ChapterEdgeFsmEvent.disposed);
+    }
+    if (ReaderGestureDiagnostics.enabled) {
+      _diag.detachReader(_readerInstanceId);
+    }
     _saveProgress();
     widget.dataNotifier.removeListener(_onChapterChanged);
     _itemPositionsListener.itemPositions.removeListener(_onWebtoonScroll);
@@ -588,8 +936,9 @@ class _ReaderPageState extends State<ReaderPage> {
     if (_isWebtoon) {
       return Listener(
         onPointerDown: _onEdgePointerDown,
-        onPointerUp: (e) => _onPointerLeave(e),
-        onPointerCancel: (e) => _onPointerLeave(e),
+        onPointerMove: _onEdgePointerMove,
+        onPointerUp: _onPointerUp,
+        onPointerCancel: _onPointerCancel,
         child: NotificationListener<ScrollNotification>(
           onNotification: _handleScrollNotification,
           child: ZoomableWebtoonView(
@@ -605,12 +954,12 @@ class _ReaderPageState extends State<ReaderPage> {
         ),
       );
     }
-    final lockPage =
-        _pageZoomed || _multiTouch;
+    final lockPage = _pageZoomed || _multiTouch;
     return Listener(
       onPointerDown: _onEdgePointerDown,
-      onPointerUp: (e) => _onPointerLeave(e),
-      onPointerCancel: (e) => _onPointerLeave(e),
+      onPointerMove: _onEdgePointerMove,
+      onPointerUp: _onPointerUp,
+      onPointerCancel: _onPointerCancel,
       child: NotificationListener<ScrollNotification>(
         onNotification: _handleScrollNotification,
         child: PageView.builder(
@@ -629,6 +978,7 @@ class _ReaderPageState extends State<ReaderPage> {
             onPageTurn: _navigateTap,
             onMenu: _toggleBars,
             onZoomChanged: _onPageZoomChanged,
+            onLocksPageViewChanged: _onLocksPageViewChanged,
             child: _buildImage(index),
           ),
         ),
@@ -648,12 +998,166 @@ class _ReaderPageState extends State<ReaderPage> {
       _multiTouch = false;
     }
     _activePointers[e.pointer] = now;
+    _diag.onPointerDown(
+      _readerInstanceId,
+      e,
+      activePointerCount: _activePointers.length,
+    );
     // 每次按下都重新武装，避免漏收 pointerUp 导致 gate 永久哑火
     _edgeGate.beginGesture();
+
+    if (_activePointers.length == 1) {
+      _gestureStartPos = e.position;
+      _gestureTotalDelta = Offset.zero;
+      _gestureStartAt = now;
+      _gestureCancelled = false;
+      _gestureSawMultiTouch = false;
+      _gestureStartPage = _page;
+      _gestureSessionId = _diag.currentGestureSessionId(_readerInstanceId);
+    } else if (_activePointers.length >= 2) {
+      _gestureSawMultiTouch = true;
+    }
+
     if (_activePointers.length >= 2 && !_multiTouch) {
       setState(() => _multiTouch = true);
+      if (_useFormalEdge) {
+        _edgeFsm.handle(event: ChapterEdgeFsmEvent.imageScaleStarted);
+      }
     } else if (clearedStale && !_multiTouch) {
       setState(() {});
+    }
+    _syncDiagnosticsContext();
+  }
+
+  void _onEdgePointerMove(PointerMoveEvent e) {
+    _activePointers[e.pointer] = DateTime.now();
+    _diag.onPointerMove(_readerInstanceId, e);
+    if (_gestureStartPos != null && _activePointers.length == 1) {
+      _gestureTotalDelta = e.position - _gestureStartPos!;
+    }
+  }
+
+  void _onPointerUp(PointerUpEvent e) {
+    _onPointerLeave(e);
+    _diag.onPointerUp(
+      _readerInstanceId,
+      e,
+      activePointerCount: _activePointers.length,
+    );
+    if (_activePointers.isEmpty) {
+      _finalizeIndependentEdgeSwipe(cancelled: _gestureCancelled);
+    }
+    _syncDiagnosticsContext();
+  }
+
+  void _onPointerCancel(PointerCancelEvent e) {
+    _gestureCancelled = true;
+    _onPointerLeave(e);
+    _diag.onPointerCancel(
+      _readerInstanceId,
+      e,
+      activePointerCount: _activePointers.length,
+    );
+    if (_activePointers.isEmpty) {
+      if (_useFormalEdge) {
+        _applyFsmResult(
+          _edgeFsm.handle(event: ChapterEdgeFsmEvent.gestureCancelled),
+          scrollStyle: true,
+          inputSource: 'pointerCancel',
+        );
+      }
+      _resetGestureAccumulators();
+    }
+    _syncDiagnosticsContext();
+  }
+
+  void _finalizeIndependentEdgeSwipe({required bool cancelled}) {
+    if (!_useFormalEdge || _isWebtoon) {
+      _resetGestureAccumulators();
+      return;
+    }
+    if (cancelled ||
+        _gestureSawMultiTouch ||
+        _pageZoomed ||
+        _gestureStartAt == null) {
+      _resetGestureAccumulators();
+      return;
+    }
+
+    final durationMs = DateTime.now()
+        .difference(_gestureStartAt!)
+        .inMilliseconds;
+    final dx = _gestureTotalDelta.dx;
+    final dy = _gestureTotalDelta.dy;
+    final horizontal = _readMode == 'h';
+    final sessionId = _gestureSessionId;
+
+    // 若本 session 已通过 aux overscroll 处理，主路径跳过
+    if (sessionId != null && _edgeAuxConsumedSessions.contains(sessionId)) {
+      _diag.onEdgeSwipeRejected(
+        _readerInstanceId,
+        reason: 'alreadyHandledByAuxOverscroll',
+        gestureSessionId: sessionId,
+      );
+      _resetGestureAccumulators();
+      return;
+    }
+
+    final geometry = EdgeSwipeGeometry.evaluate(
+      totalDx: dx,
+      totalDy: dy,
+      durationMs: durationMs,
+      viewport: MediaQuery.sizeOf(context),
+      horizontalReading: horizontal,
+      atFirstPage: _gestureStartPage <= 1,
+      atLastPage: _gestureStartPage >= _count && _count > 0,
+    );
+
+    if (!geometry.accepted) {
+      _diag.onEdgeSwipeRejected(
+        _readerInstanceId,
+        reason: geometry.rejectReason,
+        gestureSessionId: sessionId,
+      );
+      _resetGestureAccumulators();
+      return;
+    }
+
+    final goNext = geometry.intent == ReadingNavIntent.towardNextChapter;
+    final hasAdjacent =
+        (goNext ? _data.nextChapterUrl : _data.previousChapterUrl) != null;
+
+    if (sessionId != null) _edgeAuxConsumedSessions.add(sessionId);
+    _diag.onEdgeSwipeAccepted(
+      _readerInstanceId,
+      source: 'independentSwipe',
+      goNext: goNext,
+      gestureSessionId: sessionId,
+    );
+    _applyFsmResult(
+      _edgeFsm.handle(
+        event: ChapterEdgeFsmEvent.independentSwipeCompleted,
+        goNext: goNext,
+        intent: geometry.intent,
+        hasAdjacent: hasAdjacent,
+        gestureSessionId: sessionId,
+      ),
+      scrollStyle: true,
+      inputSource: 'touchSwipe',
+    );
+    _resetGestureAccumulators();
+  }
+
+  void _resetGestureAccumulators() {
+    _gestureStartPos = null;
+    _gestureTotalDelta = Offset.zero;
+    _gestureStartAt = null;
+    _gestureSessionId = null;
+    _gestureCancelled = false;
+    _gestureSawMultiTouch = false;
+    _gestureStartPage = _page;
+    if (_edgeAuxConsumedSessions.length > 64) {
+      _edgeAuxConsumedSessions.clear();
     }
   }
 
@@ -677,6 +1181,7 @@ class _ReaderPageState extends State<ReaderPage> {
 
   @override
   Widget build(BuildContext context) {
+    _syncDiagnosticsContext();
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
@@ -810,7 +1315,7 @@ class _ReaderPageState extends State<ReaderPage> {
                   TextButton(
                     onPressed: _data.previousChapterUrl == null
                         ? null
-                        : () => _openAdjacent(false),
+                        : () => _openAdjacent(false, inputSource: 'toolbar'),
                     child: const Text('上一章'),
                   ),
                   Expanded(
@@ -827,7 +1332,7 @@ class _ReaderPageState extends State<ReaderPage> {
                   TextButton(
                     onPressed: _data.nextChapterUrl == null
                         ? null
-                        : () => _openAdjacent(true),
+                        : () => _openAdjacent(true, inputSource: 'toolbar'),
                     child: const Text('下一章'),
                   ),
                 ],

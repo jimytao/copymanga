@@ -16,13 +16,19 @@ class ComicGroup {
   static List<ComicGroup> parseList(String json) {
     final arr = jsonDecode(json) as List;
     return arr
-        .map((g) => ComicGroup(
-              g['name'] as String? ?? '',
-              (g['chapters'] as List? ?? [])
-                  .map((c) => ComicChapter(
-                      c['name'] as String? ?? '', c['url'] as String? ?? ''))
-                  .toList(),
-            ))
+        .map(
+          (g) => ComicGroup(
+            g['name'] as String? ?? '',
+            (g['chapters'] as List? ?? [])
+                .map(
+                  (c) => ComicChapter(
+                    c['name'] as String? ?? '',
+                    c['url'] as String? ?? '',
+                  ),
+                )
+                .toList(),
+          ),
+        )
         .toList();
   }
 }
@@ -52,22 +58,30 @@ class Downloader {
     return Directory('${root.path}/${sanitize(comicName)}');
   }
 
-  static Future<Directory> chapterDir(String comicName, String chapterName) async {
+  static Future<Directory> chapterDir(
+    String comicName,
+    String chapterName,
+  ) async {
     final c = await comicDir(comicName);
     return Directory('${c.path}/${sanitize(chapterName)}');
   }
 
   /// 保存漫画章节结构（对应原生版 info.bin）
   static Future<void> saveComicMeta(
-      String comicName, List<ComicGroup> groups) async {
+    String comicName,
+    List<ComicGroup> groups,
+  ) async {
     final dir = await comicDir(comicName);
     await dir.create(recursive: true);
     final meta = groups
-        .map((g) => {
-              'name': g.name,
-              'chapters':
-                  g.chapters.map((c) => {'name': c.name, 'url': c.url}).toList(),
-            })
+        .map(
+          (g) => {
+            'name': g.name,
+            'chapters': g.chapters
+                .map((c) => {'name': c.name, 'url': c.url})
+                .toList(),
+          },
+        )
         .toList();
     await File('${dir.path}/chapters.json').writeAsString(jsonEncode(meta));
   }
@@ -84,7 +98,9 @@ class Downloader {
   }
 
   static Future<bool> isChapterDownloaded(
-      String comicName, String chapterName) async {
+    String comicName,
+    String chapterName,
+  ) async {
     final dir = await chapterDir(comicName, chapterName);
     // 以 .done 为准，避免取消/失败留下的半成品被标成已下载。
     // 旧版无标记的完整下载：再次点下载会跳过已有文件并补写 .done。
@@ -118,16 +134,25 @@ class Downloader {
           var ok = false;
           for (var attempt = 0; attempt < 3 && !ok; attempt++) {
             try {
-              final resp = await http.get(Uri.parse(url), headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                    'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-              }).timeout(const Duration(seconds: 30));
+              final resp = await http
+                  .get(
+                    Uri.parse(url),
+                    headers: {
+                      'User-Agent':
+                          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                          'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+                    },
+                  )
+                  .timeout(const Duration(seconds: 30));
               if (resp.statusCode == 200 && resp.bodyBytes.isNotEmpty) {
                 await file.writeAsBytes(resp.bodyBytes);
                 ok = true;
               }
             } catch (_) {}
-            if (!ok) await Future.delayed(Duration(milliseconds: 1500 * (attempt + 1)));
+            if (!ok)
+              await Future.delayed(
+                Duration(milliseconds: 1500 * (attempt + 1)),
+              );
           }
           if (!ok) allOk = false;
         }
@@ -148,8 +173,11 @@ class Downloader {
   /// 列出已下载的漫画目录
   static Future<List<Directory>> listComics() async {
     final root = await downloadsRoot();
-    final dirs =
-        await root.list().where((e) => e is Directory).cast<Directory>().toList();
+    final dirs = await root
+        .list()
+        .where((e) => e is Directory)
+        .cast<Directory>()
+        .toList();
     dirs.sort((a, b) => a.path.compareTo(b.path));
     return dirs;
   }
@@ -158,8 +186,11 @@ class Downloader {
   static Future<List<Directory>> listChapters(String comicName) async {
     final dir = await comicDir(comicName);
     if (!await dir.exists()) return [];
-    final dirs =
-        await dir.list().where((e) => e is Directory).cast<Directory>().toList();
+    final dirs = await dir
+        .list()
+        .where((e) => e is Directory)
+        .cast<Directory>()
+        .toList();
     final meta = await loadComicMeta(comicName);
     if (meta != null) {
       final order = <String, int>{};
@@ -190,10 +221,12 @@ class Downloader {
   }) async {
     final files = await dir
         .list()
-        .where((e) =>
-            e is File &&
-            !e.path.endsWith('.json') &&
-            !e.path.endsWith('.done'))
+        .where(
+          (e) =>
+              e is File &&
+              !e.path.endsWith('.json') &&
+              !e.path.endsWith('.done'),
+        )
         .cast<File>()
         .toList();
     if (files.isEmpty) return null;

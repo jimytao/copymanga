@@ -22,9 +22,9 @@ class UrlManager {
   static const slowRatio = 2;
 
   static List<String> get allowedPrefixes => [
-        ...candidates,
-        ...candidates.map((u) => u.replaceFirst('://www.', '://')),
-      ];
+    ...candidates,
+    ...candidates.map((u) => u.replaceFirst('://www.', '://')),
+  ];
 
   static String activeUrl = candidates[0];
   static bool manualMode = false;
@@ -52,8 +52,9 @@ class UrlManager {
   /// 详情页/章节页 URL 统一转 PC 版
   static String toHiddenUrl(String url) {
     if (url.contains('/details/comic/')) {
-      final after =
-          url.substring(url.indexOf('/details/comic/') + '/details/comic'.length);
+      final after = url.substring(
+        url.indexOf('/details/comic/') + '/details/comic'.length,
+      );
       return '$comicDetailUrl$after';
     }
     if (url.contains('/comicContent/')) return toPcUrl(url);
@@ -74,16 +75,20 @@ class UrlManager {
   static Future<int?> _validate(String url) async {
     final sw = Stopwatch()..start();
     try {
-      final resp = await http.get(
-        Uri.parse(url),
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-              'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-        },
-      ).timeout(const Duration(seconds: 5));
+      final resp = await http
+          .get(
+            Uri.parse(url),
+            headers: {
+              'User-Agent':
+                  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                  'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+            },
+          )
+          .timeout(const Duration(seconds: 5));
       if (resp.statusCode != 200) return null;
       final body = resp.body;
-      final isCopyManga = body.contains('拷貝漫畫') ||
+      final isCopyManga =
+          body.contains('拷貝漫畫') ||
           body.contains('拷贝漫画') ||
           body.contains('copymanga');
       return isCopyManga ? sw.elapsedMilliseconds : null;
@@ -159,11 +164,12 @@ class UrlManager {
     final results = await Future.wait(
       candidates.map((url) async => MapEntry(url, await _validate(url))),
     );
-    final valid = results
-        .where((e) => e.value != null)
-        .map((e) => MapEntry(e.key, e.value!))
-        .toList()
-      ..sort((a, b) => a.value.compareTo(b.value));
+    final valid =
+        results
+            .where((e) => e.value != null)
+            .map((e) => MapEntry(e.key, e.value!))
+            .toList()
+          ..sort((a, b) => a.value.compareTo(b.value));
     allSourcesDown = valid.isEmpty;
 
     if (manualMode) {

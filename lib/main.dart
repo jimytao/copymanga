@@ -1,10 +1,12 @@
 import 'dart:io' show Platform;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'settings.dart';
 import 'splash_page.dart';
+import 'reader_gesture_marker.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -14,13 +16,18 @@ void main() async {
   }
   // 只做本地设置读取，绝不在 runApp 前做网络测速（那是旧版启动慢的主因）
   await AppSettings.init();
+  if (kDebugMode) {
+    ReaderGestureMarkerBridge.init();
+  }
   if (Platform.isIOS) {
     final dark = AppSettings.darkMode.value;
-    SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarBrightness: dark ? Brightness.dark : Brightness.light,
-      statusBarIconBrightness: dark ? Brightness.light : Brightness.dark,
-    ));
+    SystemChrome.setSystemUIOverlayStyle(
+      SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarBrightness: dark ? Brightness.dark : Brightness.light,
+        statusBarIconBrightness: dark ? Brightness.light : Brightness.dark,
+      ),
+    );
   }
   runApp(const CopyMangaApp());
 }

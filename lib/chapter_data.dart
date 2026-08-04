@@ -45,8 +45,8 @@ class ChapterData {
   String get chapterKey => uuid.isNotEmpty
       ? uuid
       : (imgUrls.isEmpty
-          ? title.hashCode.toString()
-          : imgUrls.first.hashCode.toString());
+            ? title.hashCode.toString()
+            : imgUrls.first.hashCode.toString());
 }
 
 /// 图片分辨率提升：c800x. → c1500x.（对应原生版 Resolution.kt）

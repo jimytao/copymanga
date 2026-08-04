@@ -162,7 +162,15 @@ class _ChapterListPageState extends State<_ChapterListPage> {
         builder: (_) => ReaderPage(
           dataNotifier: notifier,
           loadingText: ValueNotifier<String?>(null),
-          onRequestChapter: (url, {goNext}) => switchTo(url),
+          onRequestChapter:
+              (
+                url, {
+                goNext,
+                chapterRequestId,
+                readerInstanceId,
+                inputSource,
+                triggeringGestureSessionId,
+              }) => switchTo(url),
         ),
       ),
     );

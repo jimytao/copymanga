@@ -73,8 +73,10 @@ class _DownloadSelectPageState extends State<DownloadSelectPage> {
   Future<void> _refreshDownloadedMarks() async {
     for (final g in widget.groups) {
       for (final c in g.chapters) {
-        _downloaded[c.name] =
-            await Downloader.isChapterDownloaded(widget.comicName, c.name);
+        _downloaded[c.name] = await Downloader.isChapterDownloaded(
+          widget.comicName,
+          c.name,
+        );
       }
     }
     if (mounted) setState(() {});
@@ -87,7 +89,8 @@ class _DownloadSelectPageState extends State<DownloadSelectPage> {
     _collectCompleter = completer;
     _lastProgressAt = DateTime.now();
     _webController?.loadUrl(
-        urlRequest: URLRequest(url: WebUri(UrlManager.rehost(pcUrl))));
+      urlRequest: URLRequest(url: WebUri(UrlManager.rehost(pcUrl))),
+    );
     // 停滞守护：90 秒无进度判失败
     Timer.periodic(const Duration(seconds: 5), (t) {
       if (completer.isCompleted) {
@@ -174,8 +177,7 @@ class _DownloadSelectPageState extends State<DownloadSelectPage> {
             if (mounted) {
               setState(() {
                 _status = '${c.name} 下载 $done/$total';
-                _progress =
-                    (doneChapters + done / total) / tasks.length;
+                _progress = (doneChapters + done / total) / tasks.length;
               });
             }
           },
@@ -202,8 +204,9 @@ class _DownloadSelectPageState extends State<DownloadSelectPage> {
             ? '已取消（已完成 $doneChapters 章）'
             : '下载完成：$doneChapters 章${failed > 0 ? '，$failed 章有失败' : ''}';
       });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(_status), duration: const Duration(seconds: 3)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_status), duration: const Duration(seconds: 3)),
+      );
     }
   }
 
@@ -226,7 +229,11 @@ class _DownloadSelectPageState extends State<DownloadSelectPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.comicName, maxLines: 1, overflow: TextOverflow.ellipsis),
+        title: Text(
+          widget.comicName,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
         actions: [
           IconButton(
             tooltip: '全选未下载',
@@ -260,9 +267,10 @@ class _DownloadSelectPageState extends State<DownloadSelectPage> {
                 onLoadStop: (c, url) async {
                   await Future.delayed(const Duration(milliseconds: 500));
                   await c.evaluateJavascript(
-                      source:
-                          "window.__CM_SOURCE_PROFILE='${AppSettings.sourceProfile}';"
-                          "window.__CM_ACTIVE_URL='${UrlManager.activeUrl}';");
+                    source:
+                        "window.__CM_SOURCE_PROFILE='${AppSettings.sourceProfile}';"
+                        "window.__CM_ACTIVE_URL='${UrlManager.activeUrl}';",
+                  );
                   await c.evaluateJavascript(source: _gmShim);
                   await c.evaluateJavascript(source: _hJs);
                 },
@@ -278,10 +286,13 @@ class _DownloadSelectPageState extends State<DownloadSelectPage> {
                 for (final g in widget.groups) ...[
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                    child: Text(g.name,
-                        style: TextStyle(
-                            color: Theme.of(context).colorScheme.primary,
-                            fontWeight: FontWeight.bold)),
+                    child: Text(
+                      g.name,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.primary,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -291,8 +302,10 @@ class _DownloadSelectPageState extends State<DownloadSelectPage> {
                       children: [
                         for (final c in g.chapters)
                           FilterChip(
-                            label: Text(c.name,
-                                style: const TextStyle(fontSize: 12)),
+                            label: Text(
+                              c.name,
+                              style: const TextStyle(fontSize: 12),
+                            ),
                             selected: _selected.contains(c.url),
                             showCheckmark: false,
                             backgroundColor: _downloaded[c.name] == true
@@ -316,8 +329,10 @@ class _DownloadSelectPageState extends State<DownloadSelectPage> {
                 ],
                 Padding(
                   padding: const EdgeInsets.all(16),
-                  child: Text('共 $_totalChapters 章，绿色为已下载',
-                      style: Theme.of(context).textTheme.bodySmall),
+                  child: Text(
+                    '共 $_totalChapters 章，绿色为已下载',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
                 ),
               ],
             ),
@@ -339,8 +354,11 @@ class _DownloadSelectPageState extends State<DownloadSelectPage> {
                       if (_status.isNotEmpty)
                         Padding(
                           padding: const EdgeInsets.only(bottom: 6),
-                          child: Text(_status,
-                              maxLines: 1, overflow: TextOverflow.ellipsis),
+                          child: Text(
+                            _status,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
                       if (_running)
                         Padding(
@@ -348,12 +366,13 @@ class _DownloadSelectPageState extends State<DownloadSelectPage> {
                           child: LinearProgressIndicator(value: _progress),
                         ),
                       FilledButton.icon(
-                        onPressed:
-                            _selected.isEmpty && !_running ? null : _startDownload,
+                        onPressed: _selected.isEmpty && !_running
+                            ? null
+                            : _startDownload,
                         icon: Icon(_running ? Icons.stop : Icons.download),
-                        label: Text(_running
-                            ? '取消下载'
-                            : '下载选中的 ${_selected.length} 章'),
+                        label: Text(
+                          _running ? '取消下载' : '下载选中的 ${_selected.length} 章',
+                        ),
                       ),
                     ],
                   ),

@@ -52,5 +52,87 @@ void main() {
 
       expect(isZoomed, isFalse, reason: '再次双击后应成功缩小还原至 1.0x');
     });
+
+    testWidgets('默认正式路径不挂载 InteractiveViewer', (WidgetTester tester) async {
+      expect(ZoomableReaderImage.useLegacyGestureRouting, isFalse);
+      expect(ZoomableReaderImage.experimentBypassIvWhenUnzoomed, isFalse);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 300,
+              height: 400,
+              child: ZoomableReaderImage(
+                isHorizontal: true,
+                r2l: false,
+                onPageTurn: (_) {},
+                onMenu: () {},
+                child: Container(color: Colors.blue),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(find.byType(InteractiveViewer), findsNothing);
+    });
+
+    testWidgets('实验开关开启且未缩放时不挂载 InteractiveViewer', (
+      WidgetTester tester,
+    ) async {
+      // 实验开关已非正式路径；保留查询兼容。正式默认不依赖该开关。
+      if (!ZoomableReaderImage.experimentBypassIvWhenUnzoomed) {
+        return;
+      }
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 300,
+              height: 400,
+              child: ZoomableReaderImage(
+                isHorizontal: true,
+                r2l: false,
+                onPageTurn: (_) {},
+                onMenu: () {},
+                child: Container(color: Colors.blue),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(find.byType(InteractiveViewer), findsNothing);
+    });
+
+    testWidgets('正式路径横向拖动不挂载 InteractiveViewer', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 300,
+              height: 400,
+              child: ZoomableReaderImage(
+                isHorizontal: true,
+                r2l: false,
+                onPageTurn: (_) {},
+                onMenu: () {},
+                child: Container(color: Colors.blue, key: const Key('img')),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(find.byType(InteractiveViewer), findsNothing);
+      final center = tester.getCenter(find.byKey(const Key('img')));
+      final gesture = await tester.startGesture(center);
+      await gesture.moveBy(const Offset(-120, 0));
+      await gesture.up();
+      await tester.pump();
+      expect(find.byType(InteractiveViewer), findsNothing);
+    });
   });
 }

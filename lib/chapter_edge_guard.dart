@@ -37,6 +37,18 @@ class ChapterEdgeGuard {
       _hintPrev = false;
     }
   }
+
+  /// 诊断只读：是否已提示「再次滑动/按下」以切下一章。
+  bool get currentlyHintingNext => _hintNext;
+
+  /// 诊断只读：是否已提示「再次滑动/按下」以切上一章。
+  bool get currentlyHintingPrevious => _hintPrev;
+
+  /// 不改变状态的快照，供 debug 日志使用。
+  Map<String, bool> debugSnapshot() => {
+    'currentlyHintingNext': _hintNext,
+    'currentlyHintingPrevious': _hintPrev,
+  };
 }
 
 /// 一次 pointer 手势内只放行一次越界计数，避免同一次拖动的连续 overscroll 重复触发。

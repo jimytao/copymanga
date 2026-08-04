@@ -56,3 +56,6 @@ CopyManga-flutter-*.apk
 CopyManga-flutter-*-unsigned.ipa
 *.apk
 *.ipa
+
+# 本地真机手势诊断采集产物（tools/run_android_reader_gesture_test.ps1）
+test_output/

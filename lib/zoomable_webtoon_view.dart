@@ -41,13 +41,14 @@ class _ZoomableWebtoonViewState extends State<ZoomableWebtoonView>
   @override
   void initState() {
     super.initState();
-    _anim = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 220),
-    )..addListener(() {
-        final a = _matrixAnim;
-        if (a != null) _transform.value = a.value;
-      });
+    _anim =
+        AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 220),
+        )..addListener(() {
+          final a = _matrixAnim;
+          if (a != null) _transform.value = a.value;
+        });
     _transform.addListener(_onTransformChanged);
   }
 

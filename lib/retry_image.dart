@@ -57,8 +57,10 @@ class _RetryNetworkImageState extends State<RetryNetworkImage> {
               children: [
                 Icon(Icons.broken_image, color: Colors.white38, size: 40),
                 SizedBox(height: 8),
-                Text('加载失败，点击重试',
-                    style: TextStyle(color: Colors.white38, fontSize: 12)),
+                Text(
+                  '加载失败，点击重试',
+                  style: TextStyle(color: Colors.white38, fontSize: 12),
+                ),
               ],
             ),
           ),

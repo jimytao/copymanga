@@ -95,10 +95,7 @@ class _SplashPageState extends State<SplashPage> {
                 ),
               ),
               const SizedBox(height: 12),
-              Text(
-                _status,
-                style: TextStyle(fontSize: 13, color: accent),
-              ),
+              Text(_status, style: TextStyle(fontSize: 13, color: accent)),
             ],
           ],
         ),
