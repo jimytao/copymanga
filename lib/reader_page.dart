@@ -630,7 +630,15 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 翻页到头继续翻 → 提示一次 → 再翻切章（对应原生版 doubleTapToast 逻辑）
   bool _handleOverscroll(OverscrollNotification n) {
-    final towardEnd = ReaderReadingDirection.overscrollTowardEnd(n.overscroll);
+    // overscroll 符号在滚动轴空间（已含 reverse），经统一映射得到逻辑意图。
+    final scrollIntent = ReaderReadingDirection.resolveFromOverscroll(
+      overscroll: n.overscroll,
+      atFirstPage: _page <= 1,
+      atLastPage: _page >= _count && _count > 0,
+    );
+    final towardEnd =
+        scrollIntent == ReadingNavIntent.towardNextChapter ||
+        scrollIntent == ReadingNavIntent.towardNextPage;
     final atEdge = _atChapterEdge(towardEnd);
     String rejectReason = 'none';
     bool accepted = false;
@@ -638,6 +646,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       rejectReason = 'overscrollBelowMinAbs';
     } else if (!atEdge) {
       rejectReason = 'notAtChapterEdge';
+    } else if (scrollIntent != ReadingNavIntent.towardNextChapter &&
+        scrollIntent != ReadingNavIntent.towardPreviousChapter) {
+      rejectReason = 'notChapterEdgeIntent';
     } else {
       accepted = tryAcceptEdgeOverscroll(
         overscroll: n.overscroll,
@@ -669,22 +680,30 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         return false;
       }
       if (sessionId != null) _edgeAuxConsumedSessions.add(sessionId);
-      final intent = towardEnd
-          ? ReadingNavIntent.towardNextChapter
-          : ReadingNavIntent.towardPreviousChapter;
+      final goNext = scrollIntent == ReadingNavIntent.towardNextChapter;
       final hasAdjacent =
-          (towardEnd ? _data.nextChapterUrl : _data.previousChapterUrl) != null;
+          (goNext ? _data.nextChapterUrl : _data.previousChapterUrl) != null;
       _diag.onEdgeSwipeAccepted(
         _readerInstanceId,
         source: 'auxOverscroll',
-        goNext: towardEnd,
+        goNext: goNext,
         gestureSessionId: sessionId,
+        physicalDeltaDx: 0,
+        physicalDeltaDy: 0,
+        resolvedLogicalIntent: scrollIntent.name,
+        r2l: _r2l,
+        reverse: _readMode == 'h' && _r2l,
+        currentPageIndex: _page - 1,
+        pageCount: _count,
+        atFirstPage: _page <= 1,
+        atLastPage: _page >= _count && _count > 0,
+        edgeStateBefore: _edgeFsm.state.name,
       );
       _applyFsmResult(
         _edgeFsm.handle(
           event: ChapterEdgeFsmEvent.auxOverscroll,
-          goNext: towardEnd,
-          intent: intent,
+          goNext: goNext,
+          intent: scrollIntent,
           hasAdjacent: hasAdjacent,
           gestureSessionId: sessionId,
           fromAuxOverscroll: true,
@@ -1103,14 +1122,23 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       return;
     }
 
+    final atFirst = _gestureStartPage <= 1;
+    final atLast = _gestureStartPage >= _count && _count > 0;
+    final edgeStateBefore = _edgeFsm.state.name;
     final geometry = EdgeSwipeGeometry.evaluate(
       totalDx: dx,
       totalDy: dy,
       durationMs: durationMs,
       viewport: MediaQuery.sizeOf(context),
       horizontalReading: horizontal,
-      atFirstPage: _gestureStartPage <= 1,
-      atLastPage: _gestureStartPage >= _count && _count > 0,
+      r2l: _r2l,
+      atFirstPage: atFirst,
+      atLastPage: atLast,
+    );
+    final physical = ReaderReadingDirection.physicalSwipe(
+      totalDx: dx,
+      totalDy: dy,
+      horizontalReading: horizontal,
     );
 
     if (!geometry.accepted) {
@@ -1118,6 +1146,17 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         _readerInstanceId,
         reason: geometry.rejectReason,
         gestureSessionId: sessionId,
+        physicalSwipeDirection: ReaderReadingDirection.physicalLabel(physical),
+        physicalDeltaDx: dx,
+        physicalDeltaDy: dy,
+        resolvedLogicalIntent: geometry.intent.name,
+        r2l: _r2l,
+        reverse: horizontal && _r2l,
+        currentPageIndex: _gestureStartPage - 1,
+        pageCount: _count,
+        atFirstPage: atFirst,
+        atLastPage: atLast,
+        edgeStateBefore: edgeStateBefore,
       );
       _resetGestureAccumulators();
       return;
@@ -1133,6 +1172,17 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       source: 'independentSwipe',
       goNext: goNext,
       gestureSessionId: sessionId,
+      physicalSwipeDirection: ReaderReadingDirection.physicalLabel(physical),
+      physicalDeltaDx: dx,
+      physicalDeltaDy: dy,
+      resolvedLogicalIntent: geometry.intent.name,
+      r2l: _r2l,
+      reverse: horizontal && _r2l,
+      currentPageIndex: _gestureStartPage - 1,
+      pageCount: _count,
+      atFirstPage: atFirst,
+      atLastPage: atLast,
+      edgeStateBefore: edgeStateBefore,
     );
     _applyFsmResult(
       _edgeFsm.handle(

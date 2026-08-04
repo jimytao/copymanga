@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'build_info.dart';
 import 'chapter_edge_guard.dart';
 import 'reader_gesture_jsonl.dart';
+import 'reader_reading_direction.dart';
 
 /// Debug-only 阅读器手势诊断。Profile / Release 中 [enabled] 为 false，所有方法立即返回。
 class ReaderGestureDiagnostics {
@@ -690,6 +691,17 @@ class ReaderGestureDiagnostics {
     required String source,
     required bool goNext,
     String? gestureSessionId,
+    String? physicalSwipeDirection,
+    double? physicalDeltaDx,
+    double? physicalDeltaDy,
+    String? resolvedLogicalIntent,
+    bool? r2l,
+    bool? reverse,
+    int? currentPageIndex,
+    int? pageCount,
+    bool? atFirstPage,
+    bool? atLastPage,
+    String? edgeStateBefore,
   }) {
     _stateFor(readerInstanceId)?.emit(
       'edgeSwipeAccepted',
@@ -697,6 +709,19 @@ class ReaderGestureDiagnostics {
         'source': source,
         'goNext': goNext,
         if (gestureSessionId != null) 'gestureSessionId': gestureSessionId,
+        if (physicalSwipeDirection != null)
+          'physicalSwipeDirection': physicalSwipeDirection,
+        if (physicalDeltaDx != null) 'physicalDeltaDx': physicalDeltaDx,
+        if (physicalDeltaDy != null) 'physicalDeltaDy': physicalDeltaDy,
+        if (resolvedLogicalIntent != null)
+          'resolvedLogicalIntent': resolvedLogicalIntent,
+        if (r2l != null) 'r2l': r2l,
+        if (reverse != null) 'reverse': reverse,
+        if (currentPageIndex != null) 'currentPageIndex': currentPageIndex,
+        if (pageCount != null) 'pageCount': pageCount,
+        if (atFirstPage != null) 'atFirstPage': atFirstPage,
+        if (atLastPage != null) 'atLastPage': atLastPage,
+        if (edgeStateBefore != null) 'edgeStateBefore': edgeStateBefore,
       },
     );
   }
@@ -705,12 +730,37 @@ class ReaderGestureDiagnostics {
     String readerInstanceId, {
     required String reason,
     String? gestureSessionId,
+    String? physicalSwipeDirection,
+    double? physicalDeltaDx,
+    double? physicalDeltaDy,
+    String? resolvedLogicalIntent,
+    bool? r2l,
+    bool? reverse,
+    int? currentPageIndex,
+    int? pageCount,
+    bool? atFirstPage,
+    bool? atLastPage,
+    String? edgeStateBefore,
   }) {
     _stateFor(readerInstanceId)?.emit(
       'edgeSwipeRejected',
       extra: {
+        'rejectionReason': reason,
         'reason': reason,
         if (gestureSessionId != null) 'gestureSessionId': gestureSessionId,
+        if (physicalSwipeDirection != null)
+          'physicalSwipeDirection': physicalSwipeDirection,
+        if (physicalDeltaDx != null) 'physicalDeltaDx': physicalDeltaDx,
+        if (physicalDeltaDy != null) 'physicalDeltaDy': physicalDeltaDy,
+        if (resolvedLogicalIntent != null)
+          'resolvedLogicalIntent': resolvedLogicalIntent,
+        if (r2l != null) 'r2l': r2l,
+        if (reverse != null) 'reverse': reverse,
+        if (currentPageIndex != null) 'currentPageIndex': currentPageIndex,
+        if (pageCount != null) 'pageCount': pageCount,
+        if (atFirstPage != null) 'atFirstPage': atFirstPage,
+        if (atLastPage != null) 'atLastPage': atLastPage,
+        if (edgeStateBefore != null) 'edgeStateBefore': edgeStateBefore,
       },
     );
   }
@@ -1178,45 +1228,51 @@ class SwipeDirectionFields {
     required bool atFirstPage,
     required bool atLastPage,
   }) {
-    final horizontal = totalDx.abs() >= totalDy.abs();
-    final dominantAxis = horizontal ? 'horizontal' : 'vertical';
+    // reverse 仅作诊断标注；业务映射只认 r2l，避免双重反转。
+    final horizontalReading = readMode == 'h';
+    final dominantByDelta = totalDx.abs() >= totalDy.abs();
+    final dominantAxis = dominantByDelta ? 'horizontal' : 'vertical';
 
-    String physical = 'none';
-    if (horizontal && totalDx.abs() > 0.5) {
-      physical = totalDx < 0 ? 'left' : 'right';
-    } else if (!horizontal && totalDy.abs() > 0.5) {
-      physical = totalDy < 0 ? 'up' : 'down';
-    }
+    final swipe = ReaderReadingDirection.physicalSwipe(
+      totalDx: totalDx,
+      totalDy: totalDy,
+      horizontalReading: horizontalReading,
+    );
+    final physical = ReaderReadingDirection.physicalLabel(swipe);
+    final intent = ReaderReadingDirection.resolve(
+      totalDx: totalDx,
+      totalDy: totalDy,
+      horizontalReading: horizontalReading,
+      r2l: r2l,
+      atFirstPage: atFirstPage,
+      atLastPage: atLastPage,
+      requirePrimaryAxis: false,
+    );
+    final logical = ReaderReadingDirection.logicalReadingLabel(
+      totalDx: totalDx,
+      totalDy: totalDy,
+      horizontalReading: horizontalReading,
+      r2l: r2l,
+    );
 
-    bool towardEnd = false;
-    if (readMode == 'h') {
-      if (horizontal) {
-        // 屏幕坐标：手指左滑 (dx<0) 在横/右开 PageView 上均表示 towardNext。
-        // reverse 影响 PageView 内部轴向，诊断层统一用物理方向 + r2l 标注。
-        towardEnd = totalDx < -0.5;
-      }
-    } else if (readMode == 'v') {
-      if (!horizontal) {
-        final swipeUp = totalDy < 0;
-        towardEnd = swipeUp;
-      }
-    }
+    final edgeIntent = switch (intent) {
+      ReadingNavIntent.towardNextChapter => 'nextChapter',
+      ReadingNavIntent.towardPreviousChapter => 'previousChapter',
+      _ => 'none',
+    };
 
-    String logical = 'none';
-    if (towardEnd) {
-      logical = 'towardNext';
-    } else if (physical != 'none') {
-      logical = 'towardPrevious';
-    }
-
-    String edgeIntent = 'none';
-    if (atLastPage && towardEnd) edgeIntent = 'nextChapter';
-    if (atFirstPage && !towardEnd && physical != 'none') {
-      edgeIntent = 'previousChapter';
-    }
-
-    final signedPrimary = horizontal ? totalDx : totalDy;
-    final cross = horizontal ? totalDy.abs() : totalDx.abs();
+    final signedPrimary = ReaderReadingDirection.signedPrimaryDelta(
+      totalDx: totalDx,
+      totalDy: totalDy,
+      horizontalReading: horizontalReading,
+    );
+    final cross = ReaderReadingDirection.crossAbs(
+      totalDx: totalDx,
+      totalDy: totalDy,
+      horizontalReading: horizontalReading,
+    );
+    // reverse 仅作调用方上下文标注，不得参与二次反转（映射只认 r2l）。
+    reverse;
 
     return SwipeDirectionFields(
       dominantAxis: dominantAxis,

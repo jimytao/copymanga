@@ -52,14 +52,18 @@ idle
 
 ## 4. r2l / reverse 方向映射
 
-单一入口：`lib/reader_reading_direction.dart`（`ReaderReadingDirection`）。
+单一入口：`lib/reader_reading_direction.dart`（`ReaderReadingDirection.resolve` / `resolveSwipeIntent`）。
 
-约定（与当前 PageView 实测一致）：
+权威输入：手指物理位移 + 是否横向 + `r2l`。`PageView.reverse` 只负责视觉/滚动物理，**不得**在业务层再反转一次。
 
-- **横向**：手指左滑 → `towardNextPage`；右滑 → `towardPreviousPage`
-- **纵向**：上滑 → next；下滑 → previous
-- `PageView.reverse`（右开本）只改变内容排布与滚动物理感受，**不反转**「左滑=下一页」语义
-- `r2l` 影响点击分区左右对调，不改变滑动→页方向映射
+横向产品语义：
+
+- **日漫 / r2l=true**：右滑 (dx&gt;0) → next；左滑 (dx&lt;0) → previous
+- **左开 / r2l=false**：左滑 (dx&lt;0) → next；右滑 (dx&gt;0) → previous
+- **纵向**：上滑 → next；下滑 → previous（与 r2l 无关）
+- 点击分区左右对调仍由 `r2l` 控制（与滑动映射同源语义）
+
+Overscroll 符号属于滚动轴空间（已含 reverse），经 `resolveFromOverscroll` 映射，**不得**再按 r2l 反转。
 
 边界意图：已在首/末页且方向指向章外 → `towardPreviousChapter` / `towardNextChapter`。
 

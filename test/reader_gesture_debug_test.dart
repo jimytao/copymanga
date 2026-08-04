@@ -95,7 +95,24 @@ void main() {
   });
 
   group('SwipeDirectionFields', () {
-    test('横向 reverse 下左滑为 towardNext', () {
+    test('日漫 r2l 横向右滑为 towardNext', () {
+      final f = SwipeDirectionFields.compute(
+        totalDx: 100,
+        totalDy: 0,
+        readMode: 'h',
+        r2l: true,
+        reverse: true,
+        atFirstPage: false,
+        atLastPage: true,
+      );
+      expect(f.physicalSwipeDirection, 'right');
+      expect(f.logicalReadingDirection, 'towardNext');
+      expect(f.edgeIntent, 'nextChapter');
+      expect(f.signedPrimaryAxisDistance, 100);
+      expect(f.primaryAxisDistance, 100);
+    });
+
+    test('日漫 r2l 横向左滑不得 nextChapter', () {
       final f = SwipeDirectionFields.compute(
         totalDx: -100,
         totalDy: 0,
@@ -105,10 +122,23 @@ void main() {
         atFirstPage: false,
         atLastPage: true,
       );
+      expect(f.physicalSwipeDirection, 'left');
+      expect(f.logicalReadingDirection, 'towardPrevious');
+      expect(f.edgeIntent, 'none');
+    });
+
+    test('非日漫横向左滑为 towardNext', () {
+      final f = SwipeDirectionFields.compute(
+        totalDx: -100,
+        totalDy: 0,
+        readMode: 'h',
+        r2l: false,
+        reverse: false,
+        atFirstPage: false,
+        atLastPage: true,
+      );
       expect(f.logicalReadingDirection, 'towardNext');
       expect(f.edgeIntent, 'nextChapter');
-      expect(f.signedPrimaryAxisDistance, -100);
-      expect(f.primaryAxisDistance, 100);
     });
   });
 }

@@ -5,6 +5,13 @@
 
 ---
 
+## 2026-08-04 — v1.0.13：修复日漫横向章节边界方向映射
+
+- **根因**：`ReaderReadingDirection` 写死「左滑=下一页」且忽略 `r2l`，与日漫（右滑=下一页）及 `PageView.reverse` 不一致；末页右滑无法武装下一章，左滑误提示且可能 `pageChanged` 清掉 armed。
+- **修复**：物理滑动映射纳入 `r2l`（日漫右=next / 左开左=next）；overscroll 走滚动轴空间、不二次反转；首划/二划/诊断共用同一 `resolve`。
+- **测试**：方向映射、FSM 集成、Widget 级日漫双滑用例。
+- **版本**：`1.0.13+14`。
+
 ## 2026-08-04 — v1.0.12：正式手势仲裁 + 章节边界双滑状态机
 
 - **横滑根因修复**：未缩放时不再挂载 `InteractiveViewer`；由 `ReaderGestureCoordinator` 统一仲裁单指翻页 / 双指缩放 / 放大平移，避免 Scale 识别器与 PageView 竞争（Android 快滑约 43% 无 scrollStart 的主因）。
