@@ -5,6 +5,15 @@
 
 ---
 
+## 2026-08-05 — v1.0.14：修复 Android 发布包末页单次滑动同时触发提示与换章
+
+- **根因**：`ChapterEdgeFsm` 的同手势去重依赖 `gestureSessionId`，而该值由 `ReaderGestureDiagnostics.currentGestureSessionId()` 提供。该方法仅在 `kDebugMode=true` 时有效，**Release APK** 中始终返回 `null`，导致 FSM 的 `sameGestureSessionAsArm` 保护被完全绕过——一次手势内的 overscroll 辅助信号与主路径信号叠加后直接触发换章。
+- **修复**：`_ReaderPageState` 新增静态序列号生成器 `_newGestureSessionId()`（`gs-1, gs-2...`），每次 `onPointerDown` 自主生成唯一 session ID，完全不依赖诊断模块。Release/Profile/Debug 构建行为一致。
+- **调试保留**：Debug 模式下额外调用 `_diag.onGestureSessionIdAssigned()` 将 session ID 同步给日志系统，不影响逻辑。
+- **iOS 音量键优化**：修复 `resettingVolume` 重置音量滑块窗口期间按键被静默丢弃的问题（新增 `pendingKeyDirection` 缓冲机制，重置完立即补发）；提前同步初始 `lastVolume` 避免 `captureAndArm` 把设锚点误判为按键；初次搜索滑块死区从 120ms 缩短至 30ms。
+- **测试**：新增 `chapter_edge_fsm_release_mode_test.dart`，覆盖相同/不同/null session ID 场景；105 项测试全绿；`flutter analyze` 无新增 error/warning。
+- **版本**：`1.0.14+15`。
+
 ## 2026-08-04 — v1.0.13：修复日漫横向章节边界方向映射
 
 - **根因**：`ReaderReadingDirection` 写死「左滑=下一页」且忽略 `r2l`，与日漫（右滑=下一页）及 `PageView.reverse` 不一致；末页右滑无法武装下一章，左滑误提示且可能 `pageChanged` 清掉 armed。

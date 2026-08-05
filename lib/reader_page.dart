@@ -101,6 +101,13 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   int _gestureStartPage = 1;
   final Set<String> _edgeAuxConsumedSessions = {};
 
+  // gestureSessionId 序列号：与 ReaderGestureDiagnostics 解耦，release 包中同样有效。
+  // ReaderGestureDiagnostics.currentGestureSessionId() 仅在 kDebugMode=true 时返回
+  // 非 null 值；在 release 包中始终为 null，导致 ChapterEdgeFsm 的
+  // sameGestureSessionAsArm 去重完全失效（Android APK bug 根因）。
+  static int _gestureSeq = 0;
+  static String _newGestureSessionId() => 'gs-${++_gestureSeq}';
+
   // 信息栏时钟
   Timer? _clockTimer;
   String _clockText = '';
@@ -1032,7 +1039,13 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       _gestureCancelled = false;
       _gestureSawMultiTouch = false;
       _gestureStartPage = _page;
-      _gestureSessionId = _diag.currentGestureSessionId(_readerInstanceId);
+      // 自主生成 session ID，不依赖仅 debug 可用的 _diag 模块。
+      // 修复 release APK 中 gestureSessionId 始终为 null 导致 FSM 去重失效的 bug。
+      _gestureSessionId = _newGestureSessionId();
+      // Debug 模式下同步给诊断系统，保持日志一致性（release 中 no-op）。
+      if (ReaderGestureDiagnostics.enabled) {
+        _diag.onGestureSessionIdAssigned(_readerInstanceId, _gestureSessionId!);
+      }
     } else if (_activePointers.length >= 2) {
       _gestureSawMultiTouch = true;
     }

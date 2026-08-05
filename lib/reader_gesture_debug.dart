@@ -143,6 +143,22 @@ class ReaderGestureDiagnostics {
   String? currentGestureSessionId(String readerInstanceId) =>
       _stateFor(readerInstanceId)?.activeSession?.id;
 
+  /// reader_page 自主生成 gestureSessionId 后调用此方法同步给诊断系统，
+  /// 使 debug 日志能记录到与 FSM 一致的 session ID。
+  /// Release 包中 [enabled]=false，此方法立即返回，无任何副作用。
+  void onGestureSessionIdAssigned(
+    String readerInstanceId,
+    String sessionId,
+  ) {
+    final s = _stateFor(readerInstanceId);
+    if (s == null) return;
+    s.emit(
+      'gestureSessionIdAssigned',
+      session: s.activeSession,
+      extra: {'assignedSessionId': sessionId},
+    );
+  }
+
   void onPointerDown(
     String readerInstanceId,
     PointerDownEvent e, {

@@ -7,6 +7,9 @@ import UIKit
 ///
 /// 策略：进入时记下用户音量；阅读中把工作点钳在 [0.15, 0.85] 以便总能检测到按键；
 /// 每次按键后拉回工作点；退到后台/关掉功能时立刻还原（适配「回桌面再划掉后台」）。
+///
+/// 修复：resettingVolume 期间的按键不再丢弃，用 pendingKeyDirection 暂存，
+/// 重置完成后立即补发，解决「大部分时候不工作」问题。
 private final class IOSVolumeKeyHandler: NSObject {
   private let channel: FlutterMethodChannel
   private var enabled = false
@@ -24,6 +27,9 @@ private final class IOSVolumeKeyHandler: NSObject {
   private var didCaptureVolume = false
   /// 已因进后台还原过，前台再重新武装
   private var suspendedForBackground = false
+
+  /// resettingVolume 期间捕获的待补发方向（+1=up / -1=down / 0=无）
+  private var pendingKeyDirection: Int = 0
 
   private let minAnchor: Float = 0.15
   private let maxAnchor: Float = 0.85
@@ -67,6 +73,7 @@ private final class IOSVolumeKeyHandler: NSObject {
     } else {
       enabled = false
       suspendedForBackground = false
+      pendingKeyDirection = 0
       if didCaptureVolume {
         didCaptureVolume = false
         // 先还原用户音量，再拆观察
@@ -81,6 +88,10 @@ private final class IOSVolumeKeyHandler: NSObject {
     savedUserVolume = current
     didCaptureVolume = true
     anchorVolume = min(max(current, minAnchor), maxAnchor)
+    // 关键修复：先设定 lastVolume = anchorVolume，再开始观察。
+    // 这样 captureAndArm 触发的初始 resetVolume 把音量调到锚点时，
+    // observeValue 不会把这次系统音量变化误判为一次用户按键。
+    lastVolume = anchorVolume
     startObserving()
     resetVolume(to: anchorVolume, immediate: true, teardownAfter: false)
   }
@@ -89,6 +100,7 @@ private final class IOSVolumeKeyHandler: NSObject {
   @objc private func appWillResignActive() {
     guard enabled, didCaptureVolume, !suspendedForBackground else { return }
     suspendedForBackground = true
+    pendingKeyDirection = 0
     // 同步写回，避免「回桌面后立刻划掉」时 async 还原来不及执行
     resetVolume(to: savedUserVolume, immediate: true, teardownAfter: false, preferSync: true)
   }
@@ -106,7 +118,6 @@ private final class IOSVolumeKeyHandler: NSObject {
     do {
       try session.setActive(true)
     } catch {}
-    lastVolume = session.outputVolume
     ensureVolumeViewAttached()
     session.addObserver(self, forKeyPath: "outputVolume", options: [.new], context: nil)
     observing = true
@@ -148,6 +159,7 @@ private final class IOSVolumeKeyHandler: NSObject {
     volumeView?.removeFromSuperview()
     volumeView = nil
     resettingVolume = false
+    pendingKeyDirection = 0
   }
 
   override func observeValue(
@@ -157,8 +169,20 @@ private final class IOSVolumeKeyHandler: NSObject {
     context: UnsafeMutableRawPointer?
   ) {
     // 挂起后台期间不翻页、不把音量再拉回锚点
-    guard enabled, !suspendedForBackground, keyPath == "outputVolume", !resettingVolume else { return }
+    guard enabled, !suspendedForBackground, keyPath == "outputVolume" else { return }
     let newVolume = AVAudioSession.sharedInstance().outputVolume
+
+    if resettingVolume {
+      // 修复：重置期间收到按键，不丢弃——记录方向，等重置完后补发。
+      // 只保留最后一次方向（连续同向多次：合并为一次；方向反转：以最新为准）。
+      if newVolume > lastVolume + 0.001 {
+        pendingKeyDirection = 1
+      } else if newVolume < lastVolume - 0.001 {
+        pendingKeyDirection = -1
+      }
+      return
+    }
+
     if newVolume > lastVolume + 0.001 {
       channel.invokeMethod("volUp", arguments: nil)
     } else if newVolume < lastVolume - 0.001 {
@@ -176,6 +200,17 @@ private final class IOSVolumeKeyHandler: NSObject {
     resettingVolume = false
     if teardownAfter {
       stopObserving()
+      return
+    }
+    // 补发重置期间被暂存的按键
+    let pending = pendingKeyDirection
+    pendingKeyDirection = 0
+    if pending == 1 {
+      channel.invokeMethod("volUp", arguments: nil)
+      resetVolume(to: anchorVolume, immediate: false, teardownAfter: false)
+    } else if pending == -1 {
+      channel.invokeMethod("volDown", arguments: nil)
+      resetVolume(to: anchorVolume, immediate: false, teardownAfter: false)
     }
   }
 
@@ -227,7 +262,8 @@ private final class IOSVolumeKeyHandler: NSObject {
         }
         return
       }
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
+      // slider 尚未渲染（首次进入时常见）：缩短重试窗口至 30ms（原 120ms），降低死区时长
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
         guard let self else { return }
         if !teardownAfter && !self.enabled && !self.suspendedForBackground { return }
         self.ensureVolumeViewAttached()
