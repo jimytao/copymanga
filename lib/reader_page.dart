@@ -19,6 +19,7 @@ import 'retry_image.dart';
 import 'settings.dart';
 import 'system_ui.dart';
 import 'volume_keys.dart';
+import 'webtoon_reading_progress.dart';
 import 'zoomable_reader_image.dart';
 import 'zoomable_webtoon_view.dart';
 
@@ -572,10 +573,16 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     if (!_isWebtoon || !mounted) return;
     final positions = _itemPositionsListener.itemPositions.value;
     if (positions.isEmpty) return;
-    final first = positions
-        .where((p) => p.itemTrailingEdge > 0)
-        .reduce((a, b) => a.index < b.index ? a : b);
-    final newPage = (first.index + 1).clamp(1, _count);
+    final newPage = WebtoonReadingProgress.resolveCurrentPage(
+      itemCount: _count,
+      positions: positions.map(
+        (item) => WebtoonViewportItem(
+          index: item.index,
+          leadingEdge: item.itemLeadingEdge,
+          trailingEdge: item.itemTrailingEdge,
+        ),
+      ),
+    );
     if (newPage != _page) {
       setState(() => _page = newPage);
       _edgeGuard.clear();
