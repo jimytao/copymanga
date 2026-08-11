@@ -224,6 +224,33 @@ void main() {
       );
       expect(r.action, ChapterEdgeFsmAction.requestChapterSwitch);
     });
+
+    test('条漫 ScrollUpdate 兜底与 Overscroll 必须共享同一确认状态', () {
+      // 部分 Android 在顶住条漫底部时，首划只发 ScrollUpdate；下一划才发
+      // Overscroll。两种通知都必须送入同一 FSM，不能由旧 Guard 另行计数。
+      final fromScrollUpdateFallback = fsm.handle(
+        event: ChapterEdgeFsmEvent.auxOverscroll,
+        goNext: true,
+        gestureSessionId: 'scroll-update-1',
+        intent: ReadingNavIntent.towardNextChapter,
+        hasAdjacent: true,
+        fromAuxOverscroll: true,
+      );
+      expect(
+        fromScrollUpdateFallback.action,
+        ChapterEdgeFsmAction.showConfirmHint,
+      );
+
+      final fromOverscroll = fsm.handle(
+        event: ChapterEdgeFsmEvent.auxOverscroll,
+        goNext: true,
+        gestureSessionId: 'overscroll-2',
+        intent: ReadingNavIntent.towardNextChapter,
+        hasAdjacent: true,
+        fromAuxOverscroll: true,
+      );
+      expect(fromOverscroll.action, ChapterEdgeFsmAction.requestChapterSwitch);
+    });
   });
 
   group('ReaderReadingDirection 日漫横向 r2l=true', () {

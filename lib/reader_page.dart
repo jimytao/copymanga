@@ -760,6 +760,29 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   void _handleChapterEdgeScroll(bool towardEnd) {
     final hasAdjacent =
         (towardEnd ? _data.nextChapterUrl : _data.previousChapterUrl) != null;
+    if (_useFormalEdge) {
+      // 条漫的 ScrollUpdate 是某些 Android 上 OverscrollNotification 缺失时
+      // 的兜底信号。它必须与 Overscroll 共用同一个 FSM：若首划由兜底路径
+      // 提示、二划由 Overscroll 到达，分属 Guard/FSM 会让二划被重新当成首划。
+      final intent = towardEnd
+          ? ReadingNavIntent.towardNextChapter
+          : ReadingNavIntent.towardPreviousChapter;
+      final sessionId = _gestureSessionId;
+      if (sessionId != null) _edgeAuxConsumedSessions.add(sessionId);
+      _applyFsmResult(
+        _edgeFsm.handle(
+          event: ChapterEdgeFsmEvent.auxOverscroll,
+          goNext: towardEnd,
+          intent: intent,
+          hasAdjacent: hasAdjacent,
+          gestureSessionId: sessionId,
+          fromAuxOverscroll: true,
+        ),
+        scrollStyle: true,
+        inputSource: 'touchSwipe',
+      );
+      return;
+    }
     _applyEdgeOutcome(
       _edgeGuard.onEdge(towardEnd, hasAdjacent: hasAdjacent),
       goNext: towardEnd,

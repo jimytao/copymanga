@@ -5,6 +5,12 @@
 
 ---
 
+## 2026-08-11 — v1.0.15：修复条漫末尾二次滑动无法切章
+
+- **条漫末尾二次滑动修复**：正式手势模式下，`ScrollUpdateNotification` 的条漫兜底路径此前仍调用旧 `ChapterEdgeGuard`，而 `OverscrollNotification` 调用新 `ChapterEdgeFsm`。不同 Android 对两类通知的投递顺序不同，可能造成第一划提示后第二划被另一套状态机重新当作首次操作。现两条路径统一进入 `ChapterEdgeFsm`，保证二次确认状态连续。
+- **测试**：补充条漫“首划 ScrollUpdate 兜底、二划 Overscroll”共享同一 FSM 的回归用例；本机 Flutter 测试命令环境无输出超时，待真机与 CI 复核。
+- **版本**：`1.0.15+16`。
+
 ## 2026-08-05 — v1.0.14：修复 Android 发布包末页单次滑动同时触发提示与换章
 
 - **根因**：`ChapterEdgeFsm` 的同手势去重依赖 `gestureSessionId`，而该值由 `ReaderGestureDiagnostics.currentGestureSessionId()` 提供。该方法仅在 `kDebugMode=true` 时有效，**Release APK** 中始终返回 `null`，导致 FSM 的 `sameGestureSessionAsArm` 保护被完全绕过——一次手势内的 overscroll 辅助信号与主路径信号叠加后直接触发换章。
