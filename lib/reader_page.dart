@@ -11,6 +11,7 @@ import 'chapter_data.dart';
 import 'chapter_edge_fsm.dart';
 import 'chapter_edge_guard.dart';
 import 'downloader.dart';
+import 'image_cache_store.dart';
 import 'reader_gesture_config.dart';
 import 'reader_gesture_debug.dart';
 import 'reader_reading_direction.dart';
@@ -19,6 +20,7 @@ import 'retry_image.dart';
 import 'settings.dart';
 import 'system_ui.dart';
 import 'volume_keys.dart';
+import 'webtoon_aspect_cache.dart';
 import 'webtoon_reading_progress.dart';
 import 'zoomable_reader_image.dart';
 import 'zoomable_webtoon_view.dart';
@@ -594,16 +596,23 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     }
   }
 
-  /// 预载当前页之后 5 张（对应原生版 Glide preload 后 10 张，酌减）
+  /// 预载当前页之后 3 张。
+  ///
+  /// 原本是 5 张：条漫长图解码后单张可达 20–40MB，预载窗口太大会把内存
+  /// ImageCache 撑爆，反而把视口附近的图挤出去、触发高度塌陷回跳。
   void _preloadAround(int index) {
     if (_data.isLocal) return;
-    for (var i = index + 1; i <= index + 5 && i < _count; i++) {
+    for (var i = index + 1; i <= index + 3 && i < _count; i++) {
       precacheImage(
-        CachedNetworkImageProvider(wrapResolution(_data.imgUrls[i])),
+        CachedNetworkImageProvider(
+          wrapResolution(_data.imgUrls[i]),
+          cacheManager: AppImageCache.manager,
+        ),
         context,
         onError: (e, s) {},
       );
     }
+    AppImageCache.maybeTrim();
   }
 
   /// 阅读至 80% 时静默预取下一章
@@ -983,6 +992,38 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     return RetryNetworkImage(url: wrapResolution(src), fit: fit);
   }
 
+  /// 条漫单个 item：高度由缓存的宽高比锁定，图片加载/回收/重下载期间都不变。
+  ///
+  /// 不加这层 AspectRatio 时，占位符（一个 loading 圈）高度接近 0，item 在被回收
+  /// 后重建会先塌成零高再弹回真实高度；列表总高度随之抖动，SPL 重新对齐锚点，
+  /// 表现就是「滑着滑着闪一下往回跳一段」。
+  Widget _buildWebtoonImage(int index) {
+    final src = _data.imgUrls[index];
+    final url = _data.isLocal ? src : wrapResolution(src);
+    final child = _data.isLocal
+        ? Image.file(
+            File(src),
+            fit: BoxFit.fitWidth,
+            errorBuilder: (c, e, s) =>
+                const Icon(Icons.broken_image, color: Colors.white38),
+          )
+        : RetryNetworkImage(
+            url: url,
+            fit: BoxFit.fitWidth,
+            onIntrinsicSize: (size) {
+              if (WebtoonAspectCache.put(url, size.width, size.height) &&
+                  mounted) {
+                // 比例首次确定：重建以把兜底高度换成真实高度。
+                setState(() {});
+              }
+            },
+          );
+    return AspectRatio(
+      aspectRatio: WebtoonAspectCache.ratioOrFallback(url),
+      child: child,
+    );
+  }
+
   Widget _buildViewer() {
     if (_count <= 0) {
       return const Center(
@@ -1003,8 +1044,14 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               itemCount: _count,
               itemScrollController: _itemScrollController,
               itemPositionsListener: _itemPositionsListener,
-              itemBuilder: (context, index) =>
-                  _buildImage(index, fit: BoxFit.fitWidth),
+              // 必须 AlwaysScrollable：章节只有一页且不满一屏时
+              // minScrollExtent == maxScrollExtent，默认 ScrollPhysics 的
+              // shouldAcceptUserOffset 返回 false，Android 的 ClampingScrollPhysics
+              // 会直接吞掉拖拽——既不发 ScrollUpdate 也不发 Overscroll，
+              // 条漫切章的两条兜底通知全断。iOS 的 BouncingScrollPhysics 恒返回
+              // true，所以这个 bug 只在 Android 上出现。
+              physics: const AlwaysScrollableScrollPhysics(),
+              itemBuilder: (context, index) => _buildWebtoonImage(index),
             ),
           ),
         ),

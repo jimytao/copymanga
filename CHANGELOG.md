@@ -5,6 +5,16 @@
 
 ---
 
+## 2026-08-14 — v1.0.17：修复条漫滚动回跳与单页章节无法切章，新增缓存上限
+
+- **条漫滚动回跳修复**：条漫 item 此前没有任何高度约束，占位符（loading 圈）高度接近 0。图片被 `ImageCache` 淘汰或 item 滑出 `cacheExtent` 被回收后重建时，item 会先塌成零高再弹回真实高度，列表总高度随之抖动，`ScrollablePositionedList` 重新对齐锚点，表现为「滑着滑着闪一下往回跳一段」。现新增 `WebtoonAspectCache`（进程内 LRU，上限 3000 条）记录每张图的宽高比，item 外套 `AspectRatio`，占位符与真实图片共用同一高度，加载 / 回收 / 重下载全程高度恒定。尺寸未知时用 3:4 兜底。
+- **内存缓存调优**：`ImageCache` 上限由默认 100MB 提到 320MB、条数压到 80（条漫长图单张解码后可达 20–40MB，默认值几张就撑爆 LRU，把视口附近的图挤掉，正是回跳的诱因）；`_preloadAround` 预载窗口 5 → 3，避免预载反噬。低内存机型（如小米 6X + 第三方 ROM）症状最明显。
+- **单页章节无法切章修复（Android 独有）**：章节只有一页且不满一屏时 `minScrollExtent == maxScrollExtent`，默认 `ScrollPhysics.shouldAcceptUserOffset` 返回 false，Android 的 `ClampingScrollPhysics` 直接吞掉拖拽——`ScrollUpdateNotification` 与 `OverscrollNotification` 两条兜底通知全断，条漫切章无从触发。现为条漫列表显式指定 `AlwaysScrollableScrollPhysics`（恒返回 true）。iOS 的 `BouncingScrollPhysics` 本就恒返回 true，故该 bug 仅在 Android 出现。
+- **新增图片缓存上限（设置 → 存储 → 缓存上限）**：可选 256MB / 512MB / 1GB（默认）/ 2GB / 4GB / 不限制。达到上限后按最后访问时间 LRU 淘汰最旧的图片，一次性削减到上限的 80%（而非只删到刚好等于上限，避免每存一张新图就重扫目录拖慢滑动）。触发时机：冷启动一次、阅读中预载时按需触发（最小间隔 45s）、改设置后立即执行。`atime` 在部分 noatime 挂载的 Android ROM 上不更新，故取 `accessed` 与 `modified` 中较晚者。已下载到本地的漫画不受影响。
+- **独立 CacheManager**：图片改用独立 key `copymangaImageCache`，与其他缓存目录分开，清理时不误伤；残留 db 行由 `maxNrOfCacheObjects: 20000` 回收。「清理缓存」同步走 `AppImageCache.clear()`，缓存大小显示支持 GB 单位。
+- **测试**：新增 `webtoon_aspect_cache_test.dart`（兜底比例、高度稳定性、重复上报去重、非法尺寸防护、LRU 刷新）；114 项测试全绿；`flutter analyze` 无新增 error/warning。
+- **版本**：`1.0.17+18`。
+
 ## 2026-08-11 — v1.0.16：修复条漫短末页无法切换下一章
 
 - **条漫短末页修复**：最后一张图片高度较小时，前一张仍可露在视口内，阅读页码会错误停在倒数第二页，导致底部滑动不被判定为“下一章”边界。现末图底部进入视口即记为最后页，保证页码、音量键和连续滑动切章一致。

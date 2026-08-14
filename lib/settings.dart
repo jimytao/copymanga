@@ -26,6 +26,24 @@ class AppSettings {
   /// 隐藏浏览页状态栏
   static final ValueNotifier<bool> hideStatusBar = ValueNotifier(false);
 
+  /// 图片磁盘缓存上限（MB）。0 = 不限制。超限后按最后访问时间淘汰最旧的。
+  static int imageCacheLimitMb = 1024;
+
+  /// 可选档位（MB）；0 放在最后表示「不限制」。
+  static const imageCacheLimitOptionsMb = [256, 512, 1024, 2048, 4096, 0];
+
+  static int get imageCacheLimitBytes =>
+      imageCacheLimitMb <= 0 ? 0 : imageCacheLimitMb * 1024 * 1024;
+
+  static String formatCacheLimit(int mb) {
+    if (mb <= 0) return '不限制';
+    if (mb >= 1024) {
+      final g = mb / 1024;
+      return '${g == g.roundToDouble() ? g.toStringAsFixed(0) : g.toStringAsFixed(1)} GB';
+    }
+    return '$mb MB';
+  }
+
   static Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
     readMode = _prefs.getString('readMode') ?? 'h';
@@ -35,6 +53,12 @@ class AppSettings {
     volTurn = _prefs.getBool('volTurn') ?? false;
     darkMode.value = _prefs.getBool('darkMode') ?? false;
     hideStatusBar.value = _prefs.getBool('hideStatusBar') ?? false;
+    imageCacheLimitMb = _prefs.getInt('imageCacheLimitMb') ?? 1024;
+  }
+
+  static Future<void> setImageCacheLimitMb(int v) async {
+    imageCacheLimitMb = v;
+    await _prefs.setInt('imageCacheLimitMb', v);
   }
 
   static Future<void> setReadMode(String v) async {

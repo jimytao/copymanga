@@ -5,6 +5,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'downloads_page.dart';
+import 'image_cache_store.dart';
 import 'settings.dart';
 import 'url_manager.dart';
 
@@ -40,23 +41,67 @@ class _SettingsPageState extends State<SettingsPage> {
     return total;
   }
 
+  String _formatBytes(int bytes) => bytes > 1024 * 1024 * 1024
+      ? '${(bytes / 1024 / 1024 / 1024).toStringAsFixed(2)} GB'
+      : bytes > 1024 * 1024
+      ? '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB'
+      : '${(bytes / 1024).toStringAsFixed(1)} KB';
+
   Future<void> _updateCacheText() async {
     try {
       final tmp = await getTemporaryDirectory();
       final bytes = await _dirSize(tmp);
-      final text = bytes > 1024 * 1024
-          ? '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB'
-          : '${(bytes / 1024).toStringAsFixed(1)} KB';
-      if (mounted) setState(() => _cacheText = '当前缓存约 $text，点击清理');
+      if (mounted) {
+        setState(() => _cacheText = '当前缓存约 ${_formatBytes(bytes)}，点击清理');
+      }
     } catch (_) {
       if (mounted) setState(() => _cacheText = '缓存大小读取失败，点击清理');
     }
+  }
+
+  Future<void> _pickCacheLimit() async {
+    final picked = await showDialog<int>(
+      context: context,
+      builder: (c) => SimpleDialog(
+        title: const Text('图片缓存上限'),
+        children: [
+          RadioGroup<int>(
+            groupValue: AppSettings.imageCacheLimitMb,
+            onChanged: (v) => Navigator.pop(c, v),
+            child: Column(
+              children: [
+                for (final mb in AppSettings.imageCacheLimitOptionsMb)
+                  RadioListTile<int>(
+                    value: mb,
+                    title: Text(AppSettings.formatCacheLimit(mb)),
+                  ),
+              ],
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(24, 8, 24, 16),
+            child: Text(
+              '达到上限后，自动删除最久没看过的图片，直到降回上限的 80%。'
+              '已下载到本地的漫画不受影响。',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (picked == null) return;
+    await AppSettings.setImageCacheLimitMb(picked);
+    if (!mounted) return;
+    setState(() {});
+    await AppImageCache.trim();
+    if (mounted) _updateCacheText();
   }
 
   Future<void> _clearCache() async {
     try {
       await InAppWebViewController.clearAllCache();
     } catch (_) {}
+    await AppImageCache.clear();
     try {
       final tmp = await getTemporaryDirectory();
       if (await tmp.exists()) {
@@ -258,6 +303,16 @@ class _SettingsPageState extends State<SettingsPage> {
             onTap: () => Navigator.of(
               context,
             ).push(MaterialPageRoute(builder: (_) => const DownloadsPage())),
+          ),
+          ListTile(
+            title: const Text('缓存上限'),
+            subtitle: Text(
+              '${AppSettings.formatCacheLimit(AppSettings.imageCacheLimitMb)}'
+              '：超过后自动删除最久未看的图片',
+            ),
+            leading: const Icon(Icons.data_usage),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: _pickCacheLimit,
           ),
           ListTile(
             title: const Text('清理缓存'),

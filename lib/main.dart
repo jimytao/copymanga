@@ -1,9 +1,11 @@
+import 'dart:async' show unawaited;
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'image_cache_store.dart';
 import 'settings.dart';
 import 'splash_page.dart';
 import 'reader_gesture_marker.dart';
@@ -16,6 +18,9 @@ void main() async {
   }
   // 只做本地设置读取，绝不在 runApp 前做网络测速（那是旧版启动慢的主因）
   await AppSettings.init();
+  AppImageCache.applyMemoryCacheLimits();
+  // 启动时按用户设定的上限淘汰一次旧图；不 await，别拖慢冷启动
+  unawaited(AppImageCache.trim());
   if (kDebugMode) {
     ReaderGestureMarkerBridge.init();
   }
