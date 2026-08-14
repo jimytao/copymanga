@@ -5,6 +5,17 @@
 
 ---
 
+## 2026-08-14 — v1.0.18：修复 v1.0.17 条漫高度锁定引入的两处缺陷
+
+> v1.0.17 的条漫高度锁定方向正确但实现有缺陷，本版修复。**建议直接从 v1.0.16 升到本版，跳过 v1.0.17。**
+
+- **修复 setState-during-build 异常（v1.0.17 引入）**：`RetryNetworkImage` 在 `initState` 挂 `ImageStream` 监听探测原始尺寸，而图片已在 `ImageCache` 时 `addListener` 是**同步回调**——`initState` 又运行在 `itemBuilder` 内，于是 `setState` 在 build 期间被调用，抛 `setState() called during build` 并打断当前帧。`_preloadAround` 主动 precache 后 3 张，这条同步路径在条漫中几乎必然被高频触发，反复破坏 v1.0.17 本身的回跳修复。现抽出 `FrameSafeRebuild`：build 期间的重建请求延到帧后执行，并将一帧内多张图的尺寸上报合并为一次重建（此前每张图触发一次全量 `setState`）。
+- **修复条漫图片被裁切（v1.0.17 引入）**：v1.0.17 对比例未知的 item 也无条件套 `AspectRatio` 并用 3:4 兜底。`AspectRatio` 给子控件的是紧约束，配合 `BoxFit.fitWidth` 会把比兜底比例更长的图**裁掉下半截**；而离线下载章节走 `Image.file` 分支、当时未接尺寸探测，比例永远学不到，导致条漫模式下**下载的章节被永久裁成 3:4**。现改为比例未知时不加任何约束（即 v1.0.17 之前的自然高度行为），学到真实比例后才锁定——不削弱修复效果，因为回跳来自被回收后**重建**的 item，它们必然已显示过一次、比例已知。
+- **离线章节同享高度锁定**：尺寸探测抽为通用组件 `ImageIntrinsicSizeListener`，在线（`CachedNetworkImageProvider`）与离线（`FileImage`）走同一套机制。探测用的 provider 与显示用的 provider 相等，共用同一条 `ImageCache` 记录，不产生额外下载或解码。
+- **修复断点续读的异步竞态（历史遗留）**：`_initChapter` 先 `_jumpTo(1)`，再 `await SharedPreferences`（慢机上可达数百毫秒），然后无条件 `_jumpTo(saved)`。此前只校验章节代数、未校验用户是否已开始阅读，导致用户滑了几页后被凭空甩到断点位置。现检测到手指拖拽（仅认 `dragDetails != null`，程序化跳转与惯性滚动不计）后即放弃跳转，改为仅提示「上次读到第 N 页」。
+- **测试**：新增 `frame_safe_rebuild_test.dart`（build 期同步回调不抛异常、一帧内多次请求合并为一次重建、帧外请求立即执行）与 `webtoon_item_layout_test.dart`（比例未知不加约束、已知锁定为真实比例、并保留「兜底比例会把长图压到 400」的反例防止回归）。已验证去掉守卫后相应用例全部失败，确认测试有效。120 项测试全绿；`flutter analyze` 无 error/warning。
+- **版本**：`1.0.18+19`。
+
 ## 2026-08-14 — v1.0.17：修复条漫滚动回跳与单页章节无法切章，新增缓存上限
 
 - **条漫滚动回跳修复**：条漫 item 此前没有任何高度约束，占位符（loading 圈）高度接近 0。图片被 `ImageCache` 淘汰或 item 滑出 `cacheExtent` 被回收后重建时，item 会先塌成零高再弹回真实高度，列表总高度随之抖动，`ScrollablePositionedList` 重新对齐锚点，表现为「滑着滑着闪一下往回跳一段」。现新增 `WebtoonAspectCache`（进程内 LRU，上限 3000 条）记录每张图的宽高比，item 外套 `AspectRatio`，占位符与真实图片共用同一高度，加载 / 回收 / 重下载全程高度恒定。尺寸未知时用 3:4 兜底。

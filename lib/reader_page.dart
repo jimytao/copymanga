@@ -11,7 +11,9 @@ import 'chapter_data.dart';
 import 'chapter_edge_fsm.dart';
 import 'chapter_edge_guard.dart';
 import 'downloader.dart';
+import 'frame_safe_rebuild.dart';
 import 'image_cache_store.dart';
+import 'image_intrinsic_size.dart';
 import 'reader_gesture_config.dart';
 import 'reader_gesture_debug.dart';
 import 'reader_reading_direction.dart';
@@ -117,6 +119,14 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   // 切章代数：丢弃过期的断点恢复/跳页回调，防止快速连切时旧章恢复落到新章上
   int _chapterGen = 0;
+
+  /// 本章打开后用户是否已经手动滑动过。
+  /// 断点续读要 await SharedPreferences，慢机上可能几百毫秒；期间用户已经开始读了，
+  /// 此时再 _jumpTo(saved) 会把人凭空甩走一大段。已交互就放弃跳转，只保留提示。
+  bool _userScrolledThisChapter = false;
+
+  /// 条漫宽高比更新的重建调度，见 [_onWebtoonImageSize]。
+  final _webtoonRebuild = FrameSafeRebuild();
 
   final _diag = ReaderGestureDiagnostics.instance;
   late final String _readerInstanceId;
@@ -447,6 +457,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   Future<void> _initChapter() async {
     final gen = ++_chapterGen;
+    _userScrolledThisChapter = false;
     final data = _data;
     final count = data.imgUrls.length;
     if (count <= 0) return;
@@ -471,15 +482,24 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     final prefs = await SharedPreferences.getInstance();
     if (!mounted || gen != _chapterGen) return;
     final saved = prefs.getInt(key) ?? 0;
-    if (saved >= 2 && saved < count) {
-      _jumpTo(saved);
+    if (saved < 2 || saved >= count) return;
+    if (_userScrolledThisChapter) {
+      // 用户已经自己读起来了，跳走会很突兀；只告诉他断点在哪。
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('已跳转至上次阅读的第 $saved 页'),
+          content: Text('上次读到第 $saved 页'),
           duration: const Duration(seconds: 2),
         ),
       );
+      return;
     }
+    _jumpTo(saved);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('已跳转至上次阅读的第 $saved 页'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   Future<void> _saveProgress() async {
@@ -745,6 +765,11 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 仅在「手指仍在拖、且已顶住边界」时用 ScrollUpdate 补检测，避免滑到末页瞬间误提示。
   bool _handleScrollNotification(ScrollNotification n) {
     if (n.depth == 0) {
+      // 只认手指拖拽：程序化 jumpTo / 惯性滚动不算「用户已经在读了」
+      if ((n is ScrollStartNotification && n.dragDetails != null) ||
+          (n is ScrollUpdateNotification && n.dragDetails != null)) {
+        _userScrolledThisChapter = true;
+      }
       if (n is ScrollStartNotification) {
         _diag.onScrollStart(_readerInstanceId, n, pageIndex: _page);
       } else if (n is ScrollEndNotification) {
@@ -1000,28 +1025,47 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   Widget _buildWebtoonImage(int index) {
     final src = _data.imgUrls[index];
     final url = _data.isLocal ? src : wrapResolution(src);
-    final child = _data.isLocal
+    final ImageProvider provider = _data.isLocal
+        ? FileImage(File(src))
+        : CachedNetworkImageProvider(url, cacheManager: AppImageCache.manager);
+    final Widget image = _data.isLocal
         ? Image.file(
             File(src),
             fit: BoxFit.fitWidth,
             errorBuilder: (c, e, s) =>
                 const Icon(Icons.broken_image, color: Colors.white38),
           )
-        : RetryNetworkImage(
-            url: url,
-            fit: BoxFit.fitWidth,
-            onIntrinsicSize: (size) {
-              if (WebtoonAspectCache.put(url, size.width, size.height) &&
-                  mounted) {
-                // 比例首次确定：重建以把兜底高度换成真实高度。
-                setState(() {});
-              }
-            },
-          );
-    return AspectRatio(
-      aspectRatio: WebtoonAspectCache.ratioOrFallback(url),
-      child: child,
+        : RetryNetworkImage(url: url, fit: BoxFit.fitWidth);
+
+    // 尺寸探测对在线/离线走同一套：离线章节同样需要锁定高度。
+    final child = ImageIntrinsicSizeListener(
+      provider: provider,
+      onSize: (size) => _onWebtoonImageSize(url, size),
+      child: image,
     );
+
+    // 比例未知时**不能**套 AspectRatio：它给子控件的是紧约束，配 BoxFit.fitWidth
+    // 会把比兜底比例更长的图裁掉下半截。未知时退回自然高度（即改动前的行为），
+    // 学到真实比例后才锁定——这不削弱修复效果：回跳来自被回收后**重建**的 item，
+    // 而它们必然已经显示过一次、比例已知。
+    final ratio = WebtoonAspectCache.get(url);
+    if (ratio == null) return child;
+    return AspectRatio(aspectRatio: ratio, child: child);
+  }
+
+  /// 记录新学到的宽高比并请求重建。
+  ///
+  /// 这个回调**可能在 build 期间同步触发**：图片已在 ImageCache 里时
+  /// `ImageStream.addListener` 会立刻回调，而监听是在 `initState`（即 itemBuilder
+  /// 内）挂上的。此时直接 setState 会抛 "setState() called during build"。
+  /// `_preloadAround` 主动 precache 后几张，这条同步路径几乎必然被走到。
+  void _onWebtoonImageSize(String url, Size size) {
+    if (!WebtoonAspectCache.put(url, size.width, size.height)) return;
+    if (!mounted) return;
+    // 一帧内可能有多张图同时报尺寸，合并成一次重建。
+    _webtoonRebuild.request(() {
+      if (mounted) setState(() {});
+    });
   }
 
   Widget _buildViewer() {

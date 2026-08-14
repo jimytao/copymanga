@@ -5,20 +5,14 @@ import 'image_cache_store.dart';
 
 /// 带自动重试的网络图片：失败后 1.5s/3s 退避自动重试 2 次
 /// （对应原生版 loadImageWithRetry），仍失败则显示碎图，点按手动重试。
+///
+/// 原始尺寸探测见 [ImageIntrinsicSizeListener]（条漫用它锁定 item 高度），
+/// 不放在这里是为了让本地图片走同一套机制。
 class RetryNetworkImage extends StatefulWidget {
-  const RetryNetworkImage({
-    super.key,
-    required this.url,
-    this.fit,
-    this.onIntrinsicSize,
-  });
+  const RetryNetworkImage({super.key, required this.url, this.fit});
 
   final String url;
   final BoxFit? fit;
-
-  /// 图片解码完成后回报原始像素尺寸。条漫用它缓存宽高比，
-  /// 让 item 高度在图片被回收/重建时保持不变（否则会塌陷回跳）。
-  final ValueChanged<Size>? onIntrinsicSize;
 
   @override
   State<RetryNetworkImage> createState() => _RetryNetworkImageState();
@@ -27,59 +21,6 @@ class RetryNetworkImage extends StatefulWidget {
 class _RetryNetworkImageState extends State<RetryNetworkImage> {
   int _attempt = 0;
   bool _retryScheduled = false;
-
-  ImageStream? _sizeStream;
-  ImageStreamListener? _sizeListener;
-
-  @override
-  void initState() {
-    super.initState();
-    _listenForSize();
-  }
-
-  @override
-  void didUpdateWidget(RetryNetworkImage old) {
-    super.didUpdateWidget(old);
-    if (old.url != widget.url) {
-      _stopListeningForSize();
-      _listenForSize();
-    }
-  }
-
-  @override
-  void dispose() {
-    _stopListeningForSize();
-    super.dispose();
-  }
-
-  /// 用同一个 provider 再 resolve 一次只为拿原始尺寸：命中的是同一条
-  /// ImageCache 记录，不会产生额外下载。
-  void _listenForSize() {
-    if (widget.onIntrinsicSize == null) return;
-    final provider = CachedNetworkImageProvider(
-      widget.url,
-      cacheManager: AppImageCache.manager,
-    );
-    final stream = provider.resolve(const ImageConfiguration());
-    final listener = ImageStreamListener((info, _) {
-      final size = Size(
-        info.image.width.toDouble(),
-        info.image.height.toDouble(),
-      );
-      if (mounted) widget.onIntrinsicSize?.call(size);
-    }, onError: (_, _) {});
-    _sizeStream = stream;
-    _sizeListener = listener;
-    stream.addListener(listener);
-  }
-
-  void _stopListeningForSize() {
-    final stream = _sizeStream;
-    final listener = _sizeListener;
-    if (stream != null && listener != null) stream.removeListener(listener);
-    _sizeStream = null;
-    _sizeListener = null;
-  }
 
   void _scheduleRetry() {
     if (_retryScheduled) return;

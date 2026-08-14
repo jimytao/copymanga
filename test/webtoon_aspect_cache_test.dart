@@ -5,18 +5,15 @@ void main() {
   setUp(WebtoonAspectCache.clear);
 
   group('WebtoonAspectCache', () {
-    test('未记录时返回兜底比例，而不是零高', () {
+    test('未记录时返回 null：调用方据此不加约束，避免裁图', () {
       expect(WebtoonAspectCache.get('a'), isNull);
-      expect(
-        WebtoonAspectCache.ratioOrFallback('a'),
-        WebtoonAspectCache.fallbackRatio,
-      );
+      expect(WebtoonAspectCache.isKnown('a'), isFalse);
     });
 
     test('记录后 item 高度稳定：同一 url 反复取到同一比例', () {
       expect(WebtoonAspectCache.put('a', 800, 1600), isTrue);
-      expect(WebtoonAspectCache.ratioOrFallback('a'), 0.5);
-      expect(WebtoonAspectCache.ratioOrFallback('a'), 0.5);
+      expect(WebtoonAspectCache.get('a'), 0.5);
+      expect(WebtoonAspectCache.get('a'), 0.5);
     });
 
     test('相同比例重复上报不触发重建', () {

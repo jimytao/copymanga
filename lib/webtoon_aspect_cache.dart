@@ -12,18 +12,14 @@ class WebtoonAspectCache {
   /// url -> width / height。用 LinkedHashMap 的插入序当 LRU。
   static final Map<String, double> _ratios = <String, double>{};
 
-  /// 尺寸未知时的兜底宽高比。条漫单页普遍是竖长图，取 3:4 比一个
-  /// 塌成零高的 loading 圈接近得多。
-  static const fallbackRatio = 0.75;
-
+  /// 比例未知时调用方应**不加约束**地渲染（见 `_buildWebtoonImage`）：
+  /// 用兜底比例套 AspectRatio 会因紧约束 + BoxFit.fitWidth 裁掉过长的图。
   static double? get(String url) {
     final v = _ratios.remove(url);
     if (v == null) return null;
     _ratios[url] = v; // 重新插入 = 标记为最近使用
     return v;
   }
-
-  static double ratioOrFallback(String url) => get(url) ?? fallbackRatio;
 
   static bool isKnown(String url) => _ratios.containsKey(url);
 
