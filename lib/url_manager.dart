@@ -11,8 +11,8 @@ class UrlManager {
   static const candidates = [
     'https://www.copy3000.com',
     'https://www.2026copy.com',
+    'https://www.copy4000.com',
     'https://www.mangacopy.com',
-    'https://www.copymanga.site',
   ];
 
   /// 相对最快延迟达到该毫秒数，才可能因「过慢」换源（还需满足倒数 2 名）。
