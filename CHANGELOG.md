@@ -1,3 +1,58 @@
+# CopyManga Kotlin 变更记录
+
+> 本文件只记录 **Kotlin 原生版**（分支 `re_build` / Tag `v*`）。  
+> Flutter 跨平台版见 `../copymanga_flutter/CHANGELOG.md`。
+
+---
+
+## 2026-08-22 — v1.5.17：域名更新与 2026copy.com 恢复
+
+- **源站清理与域名核验**：对网络上各类备选域名进行自动化 HTTP/HTML 实测核验。
+- **保留与新增有效源**：保留确认可正常打开拷贝漫画主页的 `copy3000.com`（`https://www.copy3000.com`）、`2026copy.com`（`https://www.2026copy.com`）、官方公告的大陆无障碍地址 `copy4000.com`（`https://www.copy4000.com`）与 `mangacopy.com`（`https://www.mangacopy.com`）。
+- **移除失效源**：移除连接被重置/失效的 `copymanga.site`，以及广告/域名停靠类无效页面。
+
+---
+
+## 2026-08-01 — v1.5.16：边界二次确认换章 + 点击分区对齐
+
+- **共享状态机**：抽出 `ChapterEdgeGuard` / `EdgeGestureGate`；`ViewMangaActivity` 持有唯一 `PagesManager`，点击 / 滑动 / 音量共用确认态。
+- **音量键边界换章**：首末页同向再按两次对应音量键即可换章（文案「再次按下加载上/下一章」）；页内行为不变（条漫仍滚 4/5 屏）；忽略长按 repeat。
+- **滑动二次确认**：横/纵 ViewPager2 与条漫列表越界拖动，一次手指手势只计一次；文案「再次滑动…」；无邻章首次即「已经到头了~」。
+- **滑动防误触**：仅在「已在边界且该方向不可再滚」时计数；放大中不触发；翻到末页的同一次滑动不误计确认。
+- **点击分区**：横向左中右（r2l 对调）；纵向改为上中下（中央菜单矩形，中带左右无效）；条漫仍仅点按出菜单。
+- **i.js**：详情/章节顶栏返回优先 `history.back()`，失败回落 `lastBrowseUrl`；已同步 Flutter `assets/js/i.js`。
+- **单测**：`ChapterEdgeGuard` / `EdgeGestureGate` / `ReaderTapClassifier` / `ChapterEdgeHint` JVM 单测。
+- **版本**：`1.5.16` / versionCode `29`。
+
+---
+
+
+## 2026-07-19 — v1.5.15：撤销表 H5 切章同步
+
+- **回退切章逻辑**：撤销 v1.5.14 新增的表 H5 静默同步与目标章节直接 `loadUrl`，恢复 v1.5.13 的页面控件触发方式。
+- **修复下一章跳主页**：阅读器切章不再使用隐藏页返回的章节 URL 直接导航可见 WebView。
+- **预取命中**：仅替换阅读器章节数据，不再改动后台可见 H5 的地址和状态。
+- **版本**：`1.5.15` / versionCode `28`。
+
+---
+
+## 2026-07-19 — v1.5.14：切章表 H5 阅读进度同步
+
+- **预取命中**也会静默同步可见 WebView 到目标章节（`loadVisibleUrlQuiet`），避免退出阅读器后详情仍显示旧话。
+- **无预取切章**改为优先 `loadUrl(目标章)`，控件缺失时不再只靠 `clickClass`。
+- `JS.loadComic` 尊重 `suppressLoadComic`，避免进度同步时重复触发隐藏 WebView 收图。
+- **竞态**：`consumePrefetchedData` 仅在结果就绪时取走；未命中时 `abandonPrefetch` 丢弃迟到 `loadChapter`，避免双开阅读器。
+- 源站列表：`2025copy.com` → `www.copymanga.site`（与 Flutter 对齐）。
+
+---
+
+## 2026-07-19 — v1.5.13：断点续读体验优化
+
+- **看完即清零**：退出章节时若已读到最后一页（容忍一页误差），清除该章断点，下次从第 1 页开始；只有「读到一半」的章节才恢复进度。
+- **恢复提示**：跳回断点时 Toast「已跳转至上次阅读的第 X 页」。
+
+---
+
 ## 2026-07-07 — v1.5.12：阅读体验全面优化
 
 ### 新功能
@@ -216,3 +271,4 @@
 
 - 删除重复方法 `applyDarkMode`、`setStatusBarHidden`、`setTopOffset`（各出现两次，第二份为旧版本残留）
 - 删除死代码 `showSettingsFab`、`hideSettingsFab`、`onSettingsFabClicked`（设置入口已改为 i.js DOM 注入，FAB 方式废弃）
+
